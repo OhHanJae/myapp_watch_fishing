@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
             magneticHeading = magnetic
             // Tiles can't stream the sensor. Cache at most one sample / 20s
             // while the foreground compass is open; expire on tile after 2 min.
-            if (compassWanted) {
+            if (compassWanted && magnetic != null && magnetic.isFinite()) {
                 val location = gpsLocation
                 val trueHeading = if (location == null) magnetic else {
                     val offset = GeomagneticField(
