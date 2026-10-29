@@ -1,6 +1,7 @@
 package com.eastsea.badahannun.data
 
 import android.content.Context
+import com.eastsea.badahannun.domain.MarineTimelineMath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -40,6 +41,15 @@ data class OceanSnapshot(
 
 data class TideEvent(val label: String, val time: LocalDateTime, val seaLevelMslM: Double)
 
+/** The 25 half-hour timeline slots are model forecasts; between hourly samples they are interpolated. */
+data class ForecastStep(
+    val time: LocalDateTime,
+    val weather: WeatherSnapshot?,
+    val ocean: OceanSnapshot?,
+    val tidePhase: String?,
+    val interpolated: Boolean
+)
+
 data class SeaReport(
     val weather: WeatherSnapshot?,
     val ocean: OceanSnapshot?,
@@ -48,7 +58,8 @@ data class SeaReport(
     val sunset: LocalTime?,
     val fetchedAtMs: Long,
     val stale: Boolean,
-    val notice: String?
+    val notice: String?,
+    val forecast: List<ForecastStep> = emptyList()
 )
 
 /**
@@ -87,12 +98,12 @@ class ForecastRepository(context: Context) {
         val weatherUrl = "https://api.open-meteo.com/v1/forecast" +
             "?latitude=$latitude&longitude=$longitude" +
             "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,relative_humidity_2m" +
-            "&hourly=precipitation_probability&daily=sunrise,sunset" +
+            "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,relative_humidity_2m&daily=sunrise,sunset" +
             "&timezone=Asia%2FSeoul&forecast_days=2&wind_speed_unit=ms"
         val marineUrl = "https://marine-api.open-meteo.com/v1/marine" +
             "?latitude=$seaLat&longitude=$seaLon" +
             "&current=wave_height,wave_period,wave_direction,sea_surface_temperature,sea_level_height_msl" +
-            "&hourly=sea_level_height_msl" +
+            "&hourly=wave_height,wave_period,wave_direction,sea_surface_temperature,sea_level_height_msl" +
             "&timezone=Asia%2FSeoul&forecast_days=3&past_days=1&cell_selection=sea"
 
         val (weatherNew, marineNew) = coroutineScope {
@@ -191,7 +202,10 @@ class ForecastRepository(context: Context) {
         val currentIndex = nearestTimeIndex(tideTimes, localNow)
         val seaLevel = marineCurrent?.number("sea_level_height_msl")
             ?: hourlyLevels?.numberAt(currentIndex)
-        val trend = calculateTrend(hourlyLevels, currentIndex)
+        val tideModelTimes = parseTimes(tideTimes)
+        val tideModelLevels = parseValues(hourlyLevels, tideModelTimes.size)
+        val trend = MarineTimelineMath.tideStage(tideModelTimes, tideModelLevels, localNow)
+            ?: calculateTrend(hourlyLevels, currentIndex)
 
         val ocean = marineCurrent?.let {
             OceanSnapshot(
@@ -216,8 +230,68 @@ class ForecastRepository(context: Context) {
             ?.let(::parseDateTime)?.toLocalTime()
 
         return SeaReport(weather, ocean, nextTides, sunrise, sunset,
-            fetchedAtMs, stale, notice)
+            fetchedAtMs, stale, notice,
+            forecast = buildTimeline(weatherHourly, marineHourly, localNow))
     }
+
+    /**
+     * Korean offshore grids are hourly model outputs. The half-hour values are
+     * interpolations; a missing source sample is never fabricated or extrapolated.
+     */
+    private fun buildTimeline(
+        weatherHourly: JSONObject?,
+        marineHourly: JSONObject?,
+        now: LocalDateTime
+    ): List<ForecastStep> {
+        if (weatherHourly == null && marineHourly == null) return emptyList()
+        val wt = parseTimes(weatherHourly?.optJSONArray("time"))
+        val mt = parseTimes(marineHourly?.optJSONArray("time"))
+        fun series(json: JSONObject?, name: String, count: Int): List<Double?> =
+            parseValues(json?.optJSONArray(name), count)
+        val air = series(weatherHourly, "temperature_2m", wt.size)
+        val wmo = series(weatherHourly, "weather_code", wt.size).map { it?.toInt() }
+        val wind = series(weatherHourly, "wind_speed_10m", wt.size)
+        val windDir = series(weatherHourly, "wind_direction_10m", wt.size)
+        val gust = series(weatherHourly, "wind_gusts_10m", wt.size)
+        val rain = series(weatherHourly, "precipitation_probability", wt.size)
+        val humid = series(weatherHourly, "relative_humidity_2m", wt.size)
+        val wave = series(marineHourly, "wave_height", mt.size)
+        val period = series(marineHourly, "wave_period", mt.size)
+        val waveDir = series(marineHourly, "wave_direction", mt.size)
+        val sst = series(marineHourly, "sea_surface_temperature", mt.size)
+        val levels = series(marineHourly, "sea_level_height_msl", mt.size)
+        val start = MarineTimelineMath.halfHourStart(now)
+        return (0..24).map { index ->
+            val time = start.plusMinutes(index * 30L)
+            val weather = if (weatherHourly == null) null else WeatherSnapshot(
+                temperatureC = MarineTimelineMath.sample(wt, air, time),
+                weatherCode = MarineTimelineMath.code(wt, wmo, time),
+                windMs = MarineTimelineMath.sample(wt, wind, time),
+                gustMs = MarineTimelineMath.sample(wt, gust, time),
+                windDirectionDegrees = MarineTimelineMath.direction(wt, windDir, time),
+                rainProbability = MarineTimelineMath.sample(wt, rain, time),
+                relativeHumidity = MarineTimelineMath.sample(wt, humid, time)
+            )
+            val tidePhase = MarineTimelineMath.tideStage(mt, levels, time)
+            val ocean = if (marineHourly == null) null else OceanSnapshot(
+                surfaceTemperatureC = MarineTimelineMath.sample(mt, sst, time),
+                waveM = MarineTimelineMath.sample(mt, wave, time),
+                wavePeriodSeconds = MarineTimelineMath.sample(mt, period, time),
+                waveDirectionDegrees = MarineTimelineMath.direction(mt, waveDir, time),
+                seaLevelMslM = MarineTimelineMath.sample(mt, levels, time),
+                tideFlow = tidePhase
+            )
+            ForecastStep(time, weather, ocean, tidePhase, time.minute == 30)
+        }
+    }
+
+    private fun parseTimes(array: JSONArray?): List<LocalDateTime> =
+        (0 until (array?.length() ?: 0)).mapNotNull { index ->
+            parseDateTime(array!!.optString(index))
+        }
+
+    private fun parseValues(array: JSONArray?, count: Int): List<Double?> =
+        (0 until count).map { array?.numberAt(it) }
 
     private fun calculateTrend(levels: JSONArray?, index: Int): String? {
         if (levels == null || index !in 0 until levels.length()) return null

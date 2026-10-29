@@ -37,7 +37,24 @@ class MainActivity : ComponentActivity() {
     private val repository by lazy { ForecastRepository(applicationContext) }
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private val uiPreferences by lazy { getSharedPreferences("ui", MODE_PRIVATE) }
-    private val compass by lazy { CompassTracker(this) { magneticHeading = it } }
+    private val compass by lazy {
+        CompassTracker(this) { magnetic ->
+            magneticHeading = magnetic
+            // Tiles can't stream the sensor. Cache at most one sample / 20s
+            // while the foreground compass is open; expire on tile after 2 min.
+            if (compassWanted) {
+                val location = gpsLocation
+                val trueHeading = if (location == null) magnetic else {
+                    val offset = GeomagneticField(
+                        location.latitude.toFloat(), location.longitude.toFloat(),
+                        location.altitude.toFloat(), System.currentTimeMillis()
+                    ).declination
+                    (magnetic + offset + 360f) % 360f
+                }
+                TileSnapshotStore.saveHeading(this, trueHeading)
+            }
+        }
+    }
 
     private var gpsLocation by mutableStateOf<Location?>(null)
     private var locationStatus by mutableStateOf("GPS 확인 전")

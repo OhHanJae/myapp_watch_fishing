@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +45,7 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.eastsea.badahannun.data.FishingPoint
+import com.eastsea.badahannun.data.ForecastStep
 import com.eastsea.badahannun.data.GuideCatalog
 import com.eastsea.badahannun.data.SeaReport
 import com.eastsea.badahannun.domain.FishingLogic
@@ -51,12 +53,19 @@ import com.eastsea.badahannun.domain.PointSelection
 import com.eastsea.badahannun.domain.TideCalculator
 import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.max
 import kotlin.math.sin
 
-/** Four small watch-first destinations; no HTML-style dashboard or nested tab strip. */
-private enum class Screen { HOME, FISH, COMPASS, REGIONS, POINTS }
+/** Glanceable watch screens, with a separate chart/timeline destination. */
+private enum class Screen { HOME, FORECAST, TIME_DETAIL, FISH, COMPASS, REGIONS, POINTS }
+private enum class Metric(val title: String) {
+    WAVE("파고"), WIND("바람"), AIR("기온"), SEA("수온"), LEVEL("조위")
+}
+
 private val Background = Color(0xFF050D16)
 private val CardBg = Color(0xFF102333)
 private val Accent = Color(0xFF63DFD4)
@@ -84,6 +93,8 @@ fun WearFishingApp(
 ) {
     var screen by remember { mutableStateOf(Screen.HOME) }
     var selectedRegion by remember { mutableStateOf("울산") }
+    var metric by remember { mutableStateOf(Metric.WAVE) }
+    var selectedStep by remember { mutableStateOf(0) }
     var now by remember { mutableStateOf(ZonedDateTime.now(FishingLogic.KST)) }
 
     LaunchedEffect(Unit) {
@@ -97,7 +108,11 @@ fun WearFishingApp(
         onDispose { if (screen == Screen.COMPASS) onCompassVisible(false) }
     }
     BackHandler(screen != Screen.HOME) {
-        screen = if (screen == Screen.POINTS) Screen.REGIONS else Screen.HOME
+        screen = when (screen) {
+            Screen.POINTS -> Screen.REGIONS
+            Screen.TIME_DETAIL -> Screen.FORECAST
+            else -> Screen.HOME
+        }
     }
 
     // Keep list state per destination. TransformingLazyColumn handles Wear rotary/bezel
@@ -141,6 +156,12 @@ fun WearFishingApp(
                                     )
                                 }
                                 item {
+                                    NavigationCard("12시간 예보 · 그래프", "30분마다 · 바람 / 파고 / 물 흐름", onClick = {
+                                        metric = Metric.WAVE
+                                        screen = Screen.FORECAST
+                                    })
+                                }
+                                item {
                                     NavigationCard("추천 어종 TOP 3", "계절 · 시간 · 바다 상태", onClick = { screen = Screen.FISH })
                                 }
                                 item {
@@ -155,6 +176,58 @@ fun WearFishingApp(
                                 item {
                                     WatchButton(if (refreshing) "갱신 중..." else "예보 새로고침", !refreshing, onRefresh)
                                 }
+                            }
+
+                            Screen.FORECAST -> {
+                                item { PageHeading("12시간 예보", "30분 간격 · 모델 예측") }
+                                if (report == null || report.forecast.isEmpty()) {
+                                    item { Text("예보를 아직 받지 못했어요", color = Yellow, fontSize = 12.sp) }
+                                    item { WatchButton("새로고침", !refreshing, onRefresh) }
+                                } else {
+                                    item { MetricTabs(metric) { metric = it } }
+                                    item { TrendChart(report.forecast, metric) }
+                                    item {
+                                        Text("30분 값은 시간별 예보 보간 · 조위/물 흐름은 모델 추정",
+                                            color = Gray, fontSize = 9.sp, textAlign = TextAlign.Center,
+                                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                                    }
+                                    items(report.forecast.size) { index ->
+                                        val step = report.forecast[index]
+                                        val best = FishingLogic.topFish(
+                                            catalog.fish, point,
+                                            report.takeUnless { it.stale }?.copy(weather = step.weather, ocean = step.ocean),
+                                            step.time.atZone(FishingLogic.KST)
+                                        ).firstOrNull()?.fish?.name ?: "--"
+                                        ForecastRow(step, best, index == 0) {
+                                            selectedStep = index
+                                            screen = Screen.TIME_DETAIL
+                                        }
+                                    }
+                                }
+                                item { WatchButton("홈으로", onClick = { screen = Screen.HOME }) }
+                            }
+
+                            Screen.TIME_DETAIL -> {
+                                val step = report?.forecast?.getOrNull(selectedStep)
+                                if (step == null) {
+                                    item { PageHeading("예보 없음") }
+                                } else {
+                                    item { PageHeading(step.time.format(DateTimeFormatter.ofPattern("MM/dd HH:mm")), "시간별 모델 · 30분 보간") }
+                                    item { ForecastDetailCard(step) }
+                                    val top = FishingLogic.topFish(
+                                        catalog.fish, point,
+                                        report?.takeUnless { it.stale }?.copy(weather = step.weather, ocean = step.ocean),
+                                        step.time.atZone(FishingLogic.KST)
+                                    )
+                                    item {
+                                        NavigationCard("추천 ${top.joinToString(" · ") { it.fish.name }}",
+                                            "포인트·계절·시간·예보 기준", enabled = false, onClick = {})
+                                    }
+                                    item { Text("※ 물때는 간이 계산, 조위·흐름은 모델 추정입니다.",
+                                        color = Gray, fontSize = 9.sp, textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()) }
+                                }
+                                item { WatchButton("12시간 목록", onClick = { screen = Screen.FORECAST }) }
                             }
 
                             Screen.FISH -> {
@@ -262,6 +335,130 @@ private fun PageHeading(title: String, subtitle: String? = null) {
 }
 
 @Composable
+private fun MetricTabs(selected: Metric, onSelect: (Metric) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Metric.entries.forEach { option ->
+            Box(Modifier.weight(1f).height(32.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .background(if (selected == option) Color(0xFF235C65) else CardBg)
+                .clickable { onSelect(option) }, contentAlignment = Alignment.Center) {
+                Text(option.title, fontSize = 9.sp,
+                    color = if (selected == option) Accent else White)
+            }
+        }
+    }
+}
+
+private fun metricValue(step: ForecastStep, metric: Metric): Double? = when (metric) {
+    Metric.WAVE -> step.ocean?.waveM
+    Metric.WIND -> step.weather?.windMs
+    Metric.AIR -> step.weather?.temperatureC
+    Metric.SEA -> step.ocean?.surfaceTemperatureC
+    Metric.LEVEL -> step.ocean?.seaLevelMslM
+}
+
+@Composable
+private fun TrendChart(steps: List<ForecastStep>, metric: Metric) {
+    val values = steps.map { metricValue(it, metric)?.takeIf(Double::isFinite) }
+    val available = values.filterNotNull()
+    val unit = when (metric) {
+        Metric.WAVE, Metric.LEVEL -> "m"
+        Metric.WIND -> "m/s"
+        Metric.AIR, Metric.SEA -> "°C"
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        .clip(RoundedCornerShape(18.dp)).background(CardBg)
+        .padding(horizontal = 9.dp, vertical = 11.dp)) {
+        Text("${metric.title} · ${if (available.isEmpty()) "예보 없음" else "${display(available.minOrNull())}~${display(available.maxOrNull())}$unit"}",
+            color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Canvas(Modifier.fillMaxWidth().height(102.dp)) {
+            val left = 8f
+            val right = size.width - 8f
+            val top = 8f
+            val bottom = size.height - 8f
+            val low = (available.minOrNull() ?: 0.0).toFloat()
+            val high = (available.maxOrNull() ?: 1.0).toFloat()
+            val spread = (high - low).coerceAtLeast(0.25f)
+            val minimum = low - spread * 0.16f
+            val maximum = high + spread * 0.16f
+            // Light horizontal guides, no minuscule axis labels on a round screen.
+            for (fraction in listOf(0f, 0.5f, 1f)) {
+                val y = top + fraction * (bottom - top)
+                drawLine(Color(0xFF294454), Offset(left, y), Offset(right, y), strokeWidth = 1f)
+            }
+            fun xy(index: Int, value: Double): Offset = Offset(
+                left + (right - left) * index / max(1, values.lastIndex),
+                bottom - ((value.toFloat() - minimum) / (maximum - minimum)) * (bottom - top)
+            )
+            // Do not connect gaps across missing model values.
+            for (index in 1 until values.size) {
+                val a = values[index - 1]
+                val b = values[index]
+                if (a != null && b != null) {
+                    drawLine(Accent, xy(index - 1, a), xy(index, b), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
+            for (index in values.indices step 6) {
+                values[index]?.let { drawCircle(Yellow, radius = 2.5.dp.toPx(), center = xy(index, it)) }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("현재", fontSize = 9.sp, color = Gray)
+            Text("+6시간", fontSize = 9.sp, color = Gray)
+            Text("+12시간", fontSize = 9.sp, color = Gray)
+        }
+    }
+}
+
+@Composable
+private fun ForecastRow(step: ForecastStep, topFish: String, current: Boolean, onClick: () -> Unit) {
+    val weather = step.weather
+    val sea = step.ocean
+    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)
+        .clip(RoundedCornerShape(17.dp)).background(CardBg).clickable(onClick = onClick)
+        .padding(horizontal = 13.dp, vertical = 9.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${if (current) "지금 · " else ""}${step.time.format(DateTimeFormatter.ofPattern("HH:mm"))}",
+                color = Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("${display(weather?.temperatureC, 0)}° ${FishingLogic.weatherLabel(weather?.weatherCode)}",
+                color = White, fontSize = 11.sp, maxLines = 1)
+        }
+        Spacer(Modifier.height(3.dp))
+        Text("파고 ${display(sea?.waveM)}m  ·  ${FishingLogic.windDirection(weather?.windDirectionDegrees)} ${display(weather?.windMs)}m/s",
+            color = White, fontSize = 10.sp, maxLines = 1)
+        Text("수온 ${display(sea?.surfaceTemperatureC)}° · ${step.tidePhase ?: "물 흐름 --"} · $topFish",
+            color = Gray, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun ForecastDetailCard(step: ForecastStep) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+        .background(CardBg).padding(horizontal = 13.dp, vertical = 12.dp)) {
+        val w = step.weather
+        val o = step.ocean
+        ForecastValue("날씨 · 기온", "${FishingLogic.weatherLabel(w?.weatherCode)} ${display(w?.temperatureC)}°C")
+        ForecastValue("수온", "${display(o?.surfaceTemperatureC)}°C (모델)")
+        ForecastValue("바람", "${FishingLogic.windDirection(w?.windDirectionDegrees)} ${display(w?.windMs)}m/s")
+        ForecastValue("파고", "${display(o?.waveM)}m · ${display(o?.wavePeriodSeconds)}초 주기")
+        ForecastValue("물때*", TideCalculator.onDate(step.time.toLocalDate()).name)
+        ForecastValue("물 흐름", step.tidePhase?.let { "$it (모델)" } ?: "예보 부족")
+    }
+}
+
+@Composable
+private fun ForecastValue(title: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Gray, fontSize = 10.sp, modifier = Modifier.weight(0.44f))
+        Text(value, color = White, fontSize = 11.sp, modifier = Modifier.weight(0.56f),
+            textAlign = TextAlign.End)
+    }
+}
+
+@Composable
 private fun SeaAtGlance(report: SeaReport?, now: ZonedDateTime, refreshing: Boolean) {
     val weather = report?.weather
     val sea = report?.ocean
@@ -300,10 +497,13 @@ private fun SeaAtGlance(report: SeaReport?, now: ZonedDateTime, refreshing: Bool
         )
         Spacer(Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            CompactMetric("바람", "${display(weather?.windMs)} m/s")
+            CompactMetric("바람", "${display(weather?.windMs)}m/s")
             CompactMetric("수온", "${display(sea?.surfaceTemperatureC)}°")
             CompactMetric("물때*", TideCalculator.onDate(now.toLocalDate()).name)
         }
+        Spacer(Modifier.height(5.dp))
+        Text("${FishingLogic.windDirection(weather?.windDirectionDegrees)} · ${sea?.tideFlow ?: "물 흐름 예보 없음"} (모델)",
+            fontSize = 10.sp, color = Gray)
     }
 }
 

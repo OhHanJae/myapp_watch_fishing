@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">바다한눈</string>
     <string name="tile_name">바다한눈 요약</string>
-    <string name="tile_description">포인트·파고·풍속·물때·추천어종</string>
+    <string name="tile_description">외곽 나침반·기온·수온·풍향·풍속·물 흐름·파고·추천 어종</string>
 </resources>
