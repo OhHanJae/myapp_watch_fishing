@@ -1,0 +1,10 @@
+BadaHannun WearOS project checks
+================================
+PASS: Original HTML catalog extraction => 20 points, 15 species, 3 gear sets
+PASS: Node.js catalog structural sanity
+PASS: All project XML files parse
+PASS: Kotlin domain FishingLogic compiled via kotlinc with model stubs; smoke tests passed
+PASS: TideCalculator compiled via kotlinc with Android ICU stubs; smoke tests passed
+NOT RUN: Android Gradle/SDK build (SDK and Gradle not available in authoring environment)
+NOT RUN: Galaxy Watch9 device test / Wear OS emulator
+NOTICE: gradlew / gradlew.bat bootstrap Gradle official wrapper JAR on first run
