@@ -1,0 +1,26 @@
+// Lightweight repository guard when an Android SDK is unavailable locally.
+// The GitHub Actions job executes the real Android build and Kotlin unit tests.
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const project = path.join(__dirname, '..');
+const read = file => fs.readFileSync(path.join(project, file), 'utf8');
+const ui = read('app/src/main/java/com/eastsea/badahannun/ui/WearFishingApp.kt');
+const main = read('app/src/main/java/com/eastsea/badahannun/MainActivity.kt');
+const tile = read('app/src/main/java/com/eastsea/badahannun/tiles/MarineSummaryTileService.kt');
+const manifest = read('app/src/main/AndroidManifest.xml');
+const build = read('app/build.gradle.kts');
+const catalog = JSON.parse(read('app/src/main/assets/guide_data.json'));
+assert.equal(catalog.points.length, 20);
+assert.deepEqual([...new Set(catalog.points.map(p => p.region))].sort(), ['경주','부산','울산','포항']);
+assert(ui.includes('TransformingLazyColumn(') && ui.includes('ScreenScaffold(') && ui.includes('AppScaffold('));
+assert(ui.includes('NavigationCard("내 위치로"'));
+assert(ui.includes('onSelectPoint(candidate)'));
+assert(ui.includes('screen = Screen.REGIONS') && ui.includes('screen = Screen.POINTS'));
+assert(main.includes('manualPointId = null') && main.includes('manualPointId = p.id'));
+assert(main.includes('TileSnapshotStore.write(') && main.includes('TileSnapshotStore.clear('));
+assert(tile.includes('Material3TileService()') && tile.includes('setFreshnessIntervalMillis('));
+assert(tile.includes('MAX_AGE_MS') && tile.includes('report.stale'));
+assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
+assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
+console.log('PASS: watch UI navigation, rotary-compatible list, location picker, tile wiring, stale-data guard');
