@@ -16,6 +16,7 @@ import androidx.wear.protolayout.LayoutElementBuilders.FontStyle
 import androidx.wear.protolayout.ModifiersBuilders
 import androidx.wear.protolayout.TimelineBuilders.Timeline
 import androidx.wear.protolayout.material3.MaterialScope
+import androidx.wear.protolayout.material3.Typography
 import androidx.wear.protolayout.material3.text
 import androidx.wear.protolayout.types.layoutString
 import androidx.wear.tiles.Material3TileService
@@ -79,19 +80,30 @@ class MarineSummaryTileService : Material3TileService() {
         // Compact middle: one-line facts, not the mobile dashboard.
         val body = Column.Builder().setWidth(dp(151f))
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
-        body.addContent(text(snap.pointName.take(15).layoutString))
+        // One line per item: the round 40mm display must not wrap dashboard text.
+        body.addContent(text(snap.pointName.take(12).layoutString,
+            typography = Typography.LABEL_MEDIUM, maxLines = 1))
         if (snap.fresh) {
-            body.addContent(text("${snap.weather} ${snap.temperature} · 수온 ${snap.seaTemp}".layoutString))
-            body.addContent(text("바람 ${snap.windDir} ${snap.wind}".layoutString))
-            body.addContent(text("파고 ${snap.wave}".layoutString))
-            body.addContent(text("${snap.tide}* · ${snap.tidePhase}".layoutString))
-            body.addContent(text("추천 ${snap.topFish}".layoutString))
+            body.addContent(text("${snap.weather} ${snap.temperature}".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("수온 ${snap.seaTemp} · 파고 ${snap.wave}".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("${snap.windDir} ${snap.wind}".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("${snap.tide}* · ${snap.tidePhase}".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("추천 ${snap.topFish}".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
         } else {
-            body.addContent(text("예보 갱신 필요".layoutString))
-            body.addContent(text("앱을 열어 새로고침".layoutString))
-            body.addContent(text("${snap.tide}* (간이)".layoutString))
+            body.addContent(text("예보 갱신 필요".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("앱을 열어 새로고침".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
+            body.addContent(text("${snap.tide}* (간이)".layoutString,
+                typography = Typography.LABEL_SMALL, maxLines = 1))
         }
-        body.addContent(text((if (snap.headingRecent) "최근 방위 ${snap.headingDegrees?.toInt()}°" else "실시간 방위는 앱에서").layoutString))
+        body.addContent(text((if (snap.headingRecent) "최근 ${snap.headingDegrees?.toInt()}°" else "방위: 앱에서 실시간").layoutString,
+            typography = Typography.LABEL_SMALL, maxLines = 1))
         rim.addContent(body.build())
         return Tile.Builder()
             .setFreshnessIntervalMillis(15 * 60 * 1000L)
