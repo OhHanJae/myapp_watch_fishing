@@ -189,7 +189,7 @@ fun WearFishingApp(
 
                             Screen.FORECAST -> {
                                 val leads = report?.forecast?.map { step ->
-                                    val model = report.takeUnless { it.stale }
+                                    val model = report?.takeUnless { it.stale }
                                         ?.copy(weather = step.weather, ocean = step.ocean)
                                     FishingLogic.topFish(catalog.fish, point, model,
                                         step.time.atZone(FishingLogic.KST))

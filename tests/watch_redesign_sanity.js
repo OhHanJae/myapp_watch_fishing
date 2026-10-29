@@ -29,7 +29,12 @@ assert(repository.includes('forecast = buildTimeline(') && repository.includes('
 assert(repository.includes('wave_height,wave_period,wave_direction,sea_surface_temperature,sea_level_height_msl'));
 assert(ui.includes('Screen.FORECAST') && ui.includes('Screen.TIME_DETAIL'));
 assert(ui.includes('TrendChart(') && ui.includes('ForecastDetailCard('));
+assert(ui.includes('FishLeaderChart(') && ui.includes('WatchVisualMath.dateTimeLabel(step.time)'));
+assert(ui.includes('rememberInfiniteTransition(') && ui.includes('relativeWind('));
+assert(ui.includes('onCompassVisible(screen == Screen.HOME)') && !ui.includes('Screen.COMPASS'));
+assert(tile.includes('windBearing') && tile.includes('waveHeightM'));
+assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
 assert(math.includes('return null') && math.includes('tideStage('));
 assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
 assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
-console.log('PASS: 25-point 12h forecast, graphs, tidal stages, compass rim tile, no-fabrication guards');
+console.log('PASS: live home compass, wind/wave visuals, cached tile compass, absolute time, fish-leader chart');
