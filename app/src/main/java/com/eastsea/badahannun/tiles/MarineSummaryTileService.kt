@@ -28,14 +28,16 @@ import com.eastsea.badahannun.data.FishingPoint
 import com.eastsea.badahannun.data.SeaReport
 import com.eastsea.badahannun.domain.FishingLogic
 import com.eastsea.badahannun.domain.TideCalculator
+import com.eastsea.badahannun.domain.WatchVisualMath
 import java.time.LocalDate
 import java.util.Locale
 import kotlin.math.abs
 
 /**
- * Watch tile = cached sea summary with a perimeter compass dial.
- * Tiles cannot keep compass sensors active; the dial uses the last compass reading
- * from the app (expires after two minutes). Tap the tile for the LIVE compass.
+ * Wear Tile: a compass-aligned marine summary with stylized wind streaks
+ * and wave arcs. A TileService cannot hold the compass sensor continuously.
+ * The last FOREGROUND app heading is displayed with its age; open the app's
+ * Home dial for live heading and animated wind/waves.
  */
 class MarineSummaryTileService : Material3TileService() {
     override suspend fun MaterialScope.tileResponse(requestParams: TileRequest): Tile {
@@ -61,9 +63,10 @@ class MarineSummaryTileService : Material3TileService() {
                         .setColor(argb(0xFF315262.toInt())).build()
                 ).build()
         )
-        val savedHeading = snap.headingDegrees?.takeIf { snap.headingRecent } ?: 0f
+        val savedHeading = snap.headingDegrees?.takeIf { snap.headingRecent }
+        val dialHeading = savedHeading ?: 0f
         for ((label, angle) in listOf("N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f)) {
-            val bearing = (angle - savedHeading + 360f) % 360f
+            val bearing = (angle - dialHeading + 360f) % 360f
             rim.addContent(
                 Arc.Builder().setAnchorAngle(degrees(bearing))
                     .addContent(ArcLine.Builder().setLength(degrees(5f))
@@ -76,6 +79,49 @@ class MarineSummaryTileService : Material3TileService() {
                         .build())
                     .build()
             )
+        }
+
+        // Wind from-angle is shown against the SAME outer compass coordinates.
+        // These strokes encode forecast direction/intensity; unlike app Canvas,
+        // Tiles do not run a continuous compass sensor or frame animation here.
+        val windBearing = WatchVisualMath.relativeWind(snap.windDegrees?.toDouble(), savedHeading)
+        if (windBearing != null && snap.fresh) {
+            val strength = (snap.windSpeedMs ?: 0.0).coerceIn(0.0, 15.0).toFloat()
+            for (index in 0..2) {
+                val tail = (windBearing + 360f + index * 5f) % 360f
+                rim.addContent(
+                    Arc.Builder().setAnchorAngle(degrees(tail))
+                        .addContent(
+                            ArcLine.Builder()
+                                .setLength(degrees(5f + strength * 0.9f + index * 2.2f))
+                                .setThickness(dp(1.0f + index * 0.45f))
+                                .setColor(argb(0xFF8ED4F7.toInt())).build()
+                        ).build()
+                )
+            }
+            rim.addContent(
+                Arc.Builder().setAnchorAngle(degrees(windBearing))
+                    .addContent(ArcText.Builder().setText("풍")
+                        .setFontStyle(FontStyle.Builder().setColor(argb(0xFF8ED4F7.toInt())).build())
+                        .build())
+                    .build()
+            )
+        }
+        // Colored lower perimeter wave bands: more wave height -> larger arcs.
+        val wave = (snap.waveHeightM ?: 0.0).coerceIn(0.0, 3.0).toFloat()
+        if (snap.fresh && snap.waveHeightM != null) {
+            val tideTint = if (snap.tidePhase.contains("들물"))
+                0xFF63DFD4.toInt() else 0xFF5D9CC6.toInt()
+            for (index in 0..2) {
+                rim.addContent(
+                    Arc.Builder().setAnchorAngle(degrees(131f + index * 12f))
+                        .addContent(
+                            ArcLine.Builder().setLength(degrees(24f + wave * 18f + index * 5f))
+                                .setThickness(dp(1.0f + wave * 0.4f))
+                                .setColor(argb(tideTint)).build()
+                        ).build()
+                )
+            }
         }
         // Compact middle: one-line facts, not the mobile dashboard.
         val body = Column.Builder().setWidth(dp(151f))
@@ -102,7 +148,7 @@ class MarineSummaryTileService : Material3TileService() {
             body.addContent(text("${snap.tide}* (간이)".layoutString,
                 typography = Typography.LABEL_SMALL, maxLines = 1))
         }
-        body.addContent(text((if (snap.headingRecent) "최근 ${snap.headingDegrees?.toInt()}°" else "방위: 앱에서 실시간").layoutString,
+        body.addContent(text((if (snap.headingRecent) "최근 ${snap.headingDegrees?.toInt()}°" else "방위: 앱 홈에서 실시간").layoutString,
             typography = Typography.LABEL_SMALL, maxLines = 1))
         rim.addContent(body.build())
         return Tile.Builder()
@@ -116,7 +162,7 @@ class MarineSummaryTileService : Material3TileService() {
 internal object TileSnapshotStore {
     private const val PREF = "watch_tile_snapshot_v2"
     private const val MAX_AGE_MS = 45 * 60 * 1000L
-    private const val MAX_HEADING_AGE_MS = 2 * 60 * 1000L
+    private const val MAX_HEADING_AGE_MS = 10 * 60 * 1000L
 
     data class Snapshot(
         val pointName: String,
@@ -131,7 +177,10 @@ internal object TileSnapshotStore {
         val topFish: String,
         val fresh: Boolean,
         val headingDegrees: Float?,
-        val headingRecent: Boolean
+        val headingRecent: Boolean,
+        val windDegrees: Float?,
+        val windSpeedMs: Double?,
+        val waveHeightM: Double?
     )
 
     fun clear(context: Context, point: FishingPoint, gpsMode: Boolean, hasLocation: Boolean) {
@@ -157,6 +206,9 @@ internal object TileSnapshotStore {
             .putString("wave", show(report.ocean?.waveM, "m"))
             .putString("wind", show(report.weather?.windMs, "m/s"))
             .putString("windDir", FishingLogic.windDirection(report.weather?.windDirectionDegrees))
+            .putFloat("windDegrees", report.weather?.windDirectionDegrees?.toFloat() ?: Float.NaN)
+            .putFloat("windSpeed", report.weather?.windMs?.toFloat() ?: Float.NaN)
+            .putFloat("waveHeight", report.ocean?.waveM?.toFloat() ?: Float.NaN)
             .putString("phase", report.ocean?.tideFlow ?: "--")
             .putString("fish", topFish.ifBlank { "--" })
             .putLong("time", report.fetchedAtMs)
@@ -165,7 +217,7 @@ internal object TileSnapshotStore {
         requestUpdate(context)
     }
 
-    /** Save no more often than every 20s; a tile compass is a *last sample*, never live. */
+    /** Save at most every 20s while the Home app is visible; tile reading is a snapshot. */
     fun saveHeading(context: Context, heading: Float) {
         if (!heading.isFinite()) return
         val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
@@ -196,7 +248,12 @@ internal object TileSnapshotStore {
             fresh = timestamp > 0 && now >= timestamp && now - timestamp <= MAX_AGE_MS &&
                 !pref.getBoolean("stale", true),
             headingDegrees = pref.getFloat("heading", 0f).takeIf { headingTime > 0 },
-            headingRecent = recent
+            headingRecent = recent,
+            windDegrees = pref.getFloat("windDegrees", Float.NaN).takeIf { it.isFinite() },
+            windSpeedMs = pref.getFloat("windSpeed", Float.NaN)
+                .takeIf { it.isFinite() }?.toDouble(),
+            waveHeightM = pref.getFloat("waveHeight", Float.NaN)
+                .takeIf { it.isFinite() }?.toDouble()
         )
     }
 
