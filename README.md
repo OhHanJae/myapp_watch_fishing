@@ -1,3 +1,5 @@
+> **2026-10-29 빌드 의존성 수정:** AAR metadata 충돌 26개를 해결하기 위해 Compose BOM을 `2026.06.00`, Wear Compose를 `1.6.2`로 조정했습니다. 기존 AGP 8.13.2 / compileSdk 36을 유지합니다. 상세: [FIX_GRADLE_26_ISSUES.md](FIX_GRADLE_26_ISSUES.md). 실제 APK 빌드는 미검증입니다.
+
 # 바다한눈 | Galaxy Watch9 40mm Wear OS 낚시 가이드
 
 Android Studio에서 바로 열 수 있도록 구성한 **워치 전용 Kotlin / Jetpack Compose 프로젝트**입니다.
@@ -27,7 +29,7 @@ node tests/catalog_sanity.js
 
 1. ZIP 압축을 풀고 Android Studio에서 **Open** → `BadaHannun_WearOS` 폴더를 선택합니다.
 2. Android SDK **API 36**, **JDK 17 이상(권장 JDK 17)** 및 Google Maven 리포지터리 연결을 확인합니다.
-3. Gradle Sync를 실행합니다. 프로젝트는 **AGP 8.13.2 / Kotlin 2.2.21 / Gradle 8.13 / Wear Compose Material3 1.7.1**을 사용합니다.
+3. Gradle Sync를 실행합니다. 프로젝트는 **AGP 8.13.2 / Kotlin 2.2.21 / Gradle 8.13 / Compose BOM 2026.06.00 / Wear Compose Material3 1.6.2**을 사용합니다.
 4. 기기 관리에서 **원형 Wear OS 에뮬레이터**를 선택하거나, 갤럭시 워치9에서 개발자 모드 → ADB 디버깅과 무선 디버깅을 켜고 워치를 연결합니다.
 5. Run Configuration의 `app`을 선택하고 **Run ▶**을 누릅니다.
 6. 앱 최초 실행 시 **위치 권한을 허용**하면 가까운 등록 포인트를 자동 선택합니다. 권한을 거부해도 포인트 수동 선택과 오프라인 어종 가이드를 사용할 수 있습니다.

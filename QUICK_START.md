@@ -1,5 +1,7 @@
 # 바다한눈: 3분 사용 순서
 
+> **Gradle Sync에서 AAR metadata 26개 오류가 났던 경우:** `app/build.gradle.kts`의 의존성을 API 36/AGP 8.13.2 호환 조합으로 수정했습니다. [상세 수정 내역](FIX_GRADLE_26_ISSUES.md)을 참고하세요. 아직 실기기 빌드는 미검증입니다.
+
 1. **Android Studio → Open → 이 폴더(`BadaHannun_WearOS`)**를 연다.
 2. Gradle Sync 후 **`app` 실행 구성**을 선택한다.
 3. **Galaxy Watch9 40mm (Wear OS)** 실기기나 원형 워치 에뮬레이터에서 Run ▶.
