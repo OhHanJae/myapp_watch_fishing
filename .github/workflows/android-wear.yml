@@ -20,5 +20,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Check project layout and Wear launch config
+        run: node tests/watch_redesign_sanity.js
       - name: Build and unit test
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      # Android Studio checks required wearable features in the installed APK.
+      # A successful Gradle compilation alone does not prove device compatibility.
+      - name: Verify packaged APK explicitly targets a watch
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
+          test -f "$APK"
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | tee wear-apk-badging.txt
+          grep -F "uses-feature: name='android.hardware.type.watch'" wear-apk-badging.txt
+          grep -F "launchable-activity: name='com.eastsea.badahannun.MainActivity'" wear-apk-badging.txt
+          echo "PASS: APK has required android.hardware.type.watch and launcher activity"
+      - name: Upload verified Wear OS debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bada-hannun-wear-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="ProjectRunConfigurationManager">
+  <!-- Shared Wear OS app launch: do not select a Gradle-only or Android Test run config. -->
+  <configuration default="false" name="Wear OS - 바다한눈" type="AndroidRunConfigurationType" factoryName="Android App">
+    <module name="BadaHannunWearOS.app.main" />
+    <option name="DEPLOY" value="true" />
+    <option name="DEPLOY_APK_FROM_BUNDLE" value="false" />
+    <option name="ALWAYS_INSTALL_WITH_PM" value="true" />
+    <option name="MODE" value="default_activity" />
+    <method v="2">
+      <option name="Android.Gradle.BeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

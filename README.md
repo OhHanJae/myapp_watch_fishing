@@ -54,3 +54,19 @@ gradle :app:assembleDebug :app:testDebugUnitTest
 - 바람 방향은 **바람이 불어오는 방향(from)**을 나침반 링에 동기화하고, 앱 배경의 입자는 바람이 흘러가는 쪽으로 이동합니다.
 - 파도 진폭은 예보 파고에 비례하고 들물·날물에 따라 색조를 구분하는 **장식적 연출**입니다. 실제 파랑/조류 시뮬레이션이 아닙니다.
 - 앱의 독립 나침반 메뉴는 제거하고 **홈의 회전 링**으로 통합했습니다. 백그라운드에서는 센서를 중단합니다.
+
+## Android Studio가 워치를 'non-watch APK'로 경고하는 경우
+
+Android Studio 상단 장치 선택에서 `missing uses-feature watch, non-watch apks cannot be launched on a watch`가 나오면 무선 ADB 문제가 아니라 **프로젝트의 실행 구성 또는 IDE가 참조하는 병합 Manifest** 문제입니다.
+
+이 프로젝트는 이미 `app/src/main/AndroidManifest.xml`에서 `android.hardware.type.watch`를 **필수**로 지정합니다. 이번 수정부터 CI가 **실제로 빌드한 APK의 aapt badging**에서 이를 검사하므로, 이 검사가 성공하는데도 로컬 Android Studio 경고가 남아 있다면 **로컬 IDE 설정·캐시 문제**로 분리할 수 있습니다.
+
+1. `git switch master` → `git pull --ff-only origin master`.
+2. Android Studio → **File → Sync Project with Gradle Files** → **Build → Rebuild Project**.
+3. 상단 실행 구성에서 공유된 **Wear OS - 바다한눈**을 선택합니다. 기본 **app** 구성과 다릅니다.
+4. **Run → Edit Configurations**에서 구성 타입 **Android App**, **Module = `BadaHannunWearOS.app.main` (`:app`)**, **Deploy = Default APK**, **Launch = Default Activity**를 확인합니다. Gradle 프로젝트 명칭이 로컬에서 달라졌다면 목록에서 `:app`에 대응하는 Android 앱 모듈을 다시 선택하세요.
+5. 동일 경고가 남으면 편집기에서 `app/src/main/AndroidManifest.xml`을 열고 아래 **Merged Manifest** 탭에서 `android.hardware.type.watch`가 남아 있는지 확인하세요. **Build Variants**의 `app`이 `debug`인지도 확인합니다.
+6. 최종 APK 확인은 프로젝트 루트의 PowerShell에서 `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check-wear-apk.ps1`을 한 번 실행하면 됩니다. 이 명령은 코드/워치 설정을 바꾸지 않습니다. SDK 기본 위치는 `D:\AndroidSDK`이며, 다르면 `-SdkRoot` 인자를 지정합니다.
+7. APK에 필수 watch 기능이 있는데도 기기 선택 경고가 지속되면 **Run → Edit Configurations**에서 기존 `app` 항목을 삭제하거나 비활성화하고 공유된 새 구성으로 실행하거나, **File → Invalidate Caches / Restart** 후 다시 동기화하세요.
+
+**주의:** GitHub에 정상 APK가 있어도 로컬 Android Studio가 예전 브랜치·잘못된 Run 모듈을 선택 중이면 같은 경고가 계속 나올 수 있습니다. GitHub 수정만으로 모든 PC의 IDE 캐시를 원격 초기화할 수는 없습니다.

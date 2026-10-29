@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-feature android:name="android.hardware.type.watch" android:required="true" />
+    <!-- Wear OS target. Required in the MERGED APK and Android Studio Run configuration. -->
+    <uses-feature
+        android:name="android.hardware.type.watch"
+        android:required="true" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
