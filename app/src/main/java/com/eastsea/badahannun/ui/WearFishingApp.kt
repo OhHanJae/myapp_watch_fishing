@@ -4,55 +4,66 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
-import com.eastsea.badahannun.data.*
+import com.eastsea.badahannun.data.FishingPoint
+import com.eastsea.badahannun.data.GuideCatalog
+import com.eastsea.badahannun.data.SeaReport
 import com.eastsea.badahannun.domain.FishingLogic
+import com.eastsea.badahannun.domain.PointSelection
 import com.eastsea.badahannun.domain.TideCalculator
 import kotlinx.coroutines.delay
-import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private val OceanBg = Color(0xFF06131F)
-private val Surface = Color(0xFF0E2435)
-private val SurfaceLight = Color(0xFF123248)
-private val PrimaryText = Color(0xFFEAF7FF)
-private val MutedText = Color(0xFF98B7CA)
-private val Aqua = Color(0xFF53DFD8)
-private val Blue = Color(0xFF6ABEFF)
-private val Amber = Color(0xFFFFCA79)
-private val Danger = Color(0xFFFF858B)
-private val Good = Color(0xFF7BDEA7)
-
-private enum class WatchPage { NOW, FISH, COMPASS, POINTS }
+/** Four small watch-first destinations; no HTML-style dashboard or nested tab strip. */
+private enum class Screen { HOME, FISH, COMPASS, REGIONS, POINTS }
+private val Background = Color(0xFF050D16)
+private val CardBg = Color(0xFF102333)
+private val Accent = Color(0xFF63DFD4)
+private val White = Color(0xFFF0F8FF)
+private val Gray = Color(0xFFA1B6C5)
+private val Yellow = Color(0xFFFFCD82)
+private val Red = Color(0xFFFF858B)
 
 @Composable
 fun WearFishingApp(
@@ -67,135 +78,169 @@ fun WearFishingApp(
     compassTrueNorth: Boolean,
     compassAvailable: Boolean,
     onRefresh: () -> Unit,
-    onLocate: () -> Unit,
     onSelectPoint: (FishingPoint) -> Unit,
     onUseGps: () -> Unit,
     onCompassVisible: (Boolean) -> Unit
 ) {
-    var page by remember { mutableStateOf(WatchPage.NOW) }
-    var selectedFish by remember { mutableStateOf<FishSpecies?>(null) }
+    var screen by remember { mutableStateOf(Screen.HOME) }
+    var selectedRegion by remember { mutableStateOf("울산") }
     var now by remember { mutableStateOf(ZonedDateTime.now(FishingLogic.KST)) }
-    var pointRegion by remember { mutableStateOf(point.region) }
-
-    LaunchedEffect(point.region) {
-        if (page != WatchPage.POINTS) pointRegion = point.region
-    }
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(60_000L)
+            delay(60_000)
             now = ZonedDateTime.now(FishingLogic.KST)
         }
     }
-
-    DisposableEffect(page) {
-        onCompassVisible(page == WatchPage.COMPASS)
-        onDispose {
-            if (page == WatchPage.COMPASS) onCompassVisible(false)
-        }
+    DisposableEffect(screen) {
+        onCompassVisible(screen == Screen.COMPASS)
+        onDispose { if (screen == Screen.COMPASS) onCompassVisible(false) }
+    }
+    BackHandler(screen != Screen.HOME) {
+        screen = if (screen == Screen.POINTS) Screen.REGIONS else Screen.HOME
     }
 
-    BackHandler(page != WatchPage.NOW || selectedFish != null) {
-        if (selectedFish != null) selectedFish = null
-        else page = WatchPage.NOW
-    }
-
-    val isSmall = LocalConfiguration.current.screenWidthDp <= 220
-    val hPadding = if (isSmall) 22.dp else 29.dp
-    val topFish = remember(catalog, point, report, now) {
-        FishingLogic.topFish(catalog.fish, point, report?.takeUnless { it.stale }, now)
-    }
-
+    // Keep list state per destination. TransformingLazyColumn handles Wear rotary/bezel
+    // events with ScreenScaffold and AppScaffold (including scroll indicator and focus).
     MaterialTheme {
-        Column(
-            modifier = Modifier.fillMaxSize()
-                .background(Brush.verticalGradient(listOf(OceanBg, Color(0xFF0A2031))))
-                .padding(horizontal = hPadding)
-        ) {
-            Spacer(Modifier.height(25.dp))
-            Text(
-                text = "바다한눈  ·  ${now.format(DateTimeFormatter.ofPattern("HH:mm"))}",
-                fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                color = Aqua,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = "${point.region}  ${point.name}",
-                fontSize = 15.sp, color = PrimaryText, fontWeight = FontWeight.Bold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                NavChip("현황", page == WatchPage.NOW && selectedFish == null, Modifier.weight(1f)) {
-                    selectedFish = null
-                    page = WatchPage.NOW
-                }
-                NavChip("TOP 3", page == WatchPage.FISH, Modifier.weight(1f)) {
-                    selectedFish = null
-                    page = WatchPage.FISH
-                }
-                NavChip("나침반", page == WatchPage.COMPASS, Modifier.weight(1f)) {
-                    selectedFish = null
-                    page = WatchPage.COMPASS
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
-            key(page, selectedFish?.id) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    when {
-                        selectedFish != null ->
-                            FishDetail(
-                                fish = selectedFish!!,
-                                gear = catalog.gears.firstOrNull { it.id == selectedFish!!.mainGear },
-                                onBack = { selectedFish = null }
-                            )
-                        page == WatchPage.NOW -> NowPage(
-                            report = report,
-                            refreshing = refreshing,
-                            point = point,
-                            gpsStatus = gpsStatus,
-                            isGpsMode = isGpsMode,
-                            gpsDistanceKm = gpsDistanceKm,
-                            topFish = topFish,
-                            now = now,
-                            onRefresh = onRefresh,
-                            onLocate = onLocate,
-                            onPoints = { page = WatchPage.POINTS },
-                            onFish = { page = WatchPage.FISH }
-                        )
-                        page == WatchPage.FISH -> FishPage(
-                            topFish = topFish,
-                            point = point,
-                            report = report,
-                            catalog = catalog,
-                            onDetails = { selectedFish = it }
-                        )
-                        page == WatchPage.COMPASS ->
-                            CompassPage(heading, compassTrueNorth, compassAvailable)
-                        page == WatchPage.POINTS ->
-                            PointsPage(
-                                catalog.points, pointRegion, { pointRegion = it },
-                                isGpsMode, gpsStatus,
-                                onLocate = {
-                                    onUseGps()
-                                    page = WatchPage.NOW
-                                },
-                                onSelect = {
-                                    onSelectPoint(it)
-                                    page = WatchPage.NOW
+        AppScaffold(modifier = Modifier.background(Background)) {
+            key(screen, selectedRegion) {
+                val state = rememberTransformingLazyColumnState()
+                ScreenScaffold(scrollState = state) { padding ->
+                    TransformingLazyColumn(
+                        state = state,
+                        contentPadding = padding,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        when (screen) {
+                            Screen.HOME -> {
+                                item {
+                                    PageHeading("바다한눈")
                                 }
-                            )
+                                item {
+                                    NavigationCard(
+                                        title = point.name,
+                                        caption = when {
+                                            !isGpsMode -> "직접 선택 · ${point.region}"
+                                            gpsDistanceKm == null -> "GPS 확인 중 · 임시 포인트"
+                                            else -> "내 위치 기준 · ${point.region}"
+                                        },
+                                        onClick = { selectedRegion = point.region; screen = Screen.REGIONS }
+                                    )
+                                }
+                                item { SeaAtGlance(report, now, refreshing) }
+                                item {
+                                    val condition = if (report?.stale == true) "이전 예보" else if (report == null) "예보 대기" else "모델 예보"
+                                    val distanceWarning = isGpsMode && gpsDistanceKm != null && gpsDistanceKm > 30.0
+                                    Text(
+                                        if (distanceWarning) "가까운 포인트와 ${display(gpsDistanceKm, 0)}km · 현장 확인" else condition + " · 공식 관측값 아님",
+                                        color = if (distanceWarning || report?.stale == true) Yellow else Gray,
+                                        textAlign = TextAlign.Center,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                    )
+                                }
+                                item {
+                                    NavigationCard("추천 어종 TOP 3", "계절 · 시간 · 바다 상태", onClick = { screen = Screen.FISH })
+                                }
+                                item {
+                                    NavigationCard("나침반", "실시간 방위 확인", onClick = { screen = Screen.COMPASS })
+                                }
+                                item {
+                                    NavigationCard("지역 · 포인트", "내 위치로 / 직접 선택", onClick = {
+                                        selectedRegion = point.region
+                                        screen = Screen.REGIONS
+                                    })
+                                }
+                                item {
+                                    WatchButton(if (refreshing) "갱신 중..." else "예보 새로고침", !refreshing, onRefresh)
+                                }
+                            }
+
+                            Screen.FISH -> {
+                                item { PageHeading("어종 TOP 3", point.name) }
+                                val scored = FishingLogic.topFish(
+                                    catalog.fish, point,
+                                    report?.takeUnless { it.stale }, now
+                                )
+                                items(scored.size) { index ->
+                                    val entry = scored[index]
+                                    val lure = entry.fish.lures.firstOrNull().orEmpty()
+                                    NavigationCard(
+                                        title = "${index + 1}  ${entry.fish.name}",
+                                        caption = if (lure.isNotBlank()) "추천 루어 · $lure" else "시즌·시간 기준 추천",
+                                        onClick = { /* display-only: this screen is intentionally one glance */ },
+                                        enabled = false
+                                    )
+                                }
+                                item {
+                                    Text(
+                                        "추천은 예상 조과가 아닌 조건 적합도",
+                                        color = Gray, fontSize = 10.sp, textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                                    )
+                                }
+                                item { WatchButton("홈으로", onClick = { screen = Screen.HOME }) }
+                            }
+
+                            Screen.COMPASS -> {
+                                item { PageHeading("나침반", if (compassTrueNorth) "진북 기준" else "자북 기준") }
+                                item { CompassFace(heading, compassAvailable) }
+                                item {
+                                    Text(
+                                        if (compassAvailable) "손목을 수평으로 유지하세요" else "방위 센서를 사용할 수 없음",
+                                        color = Gray, fontSize = 11.sp, textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                item { WatchButton("홈으로", onClick = { screen = Screen.HOME }) }
+                            }
+
+                            Screen.REGIONS -> {
+                                item { PageHeading("어디서 낚시해?", "현재 위치가 기본값") }
+                                item {
+                                    NavigationCard("내 위치로", gpsStatus, onClick = {
+                                        onUseGps()
+                                        screen = Screen.HOME
+                                    })
+                                }
+                                val regions = PointSelection.regions(catalog.points)
+                                items(regions.size) { index ->
+                                    val region = regions[index]
+                                    NavigationCard(
+                                        title = region,
+                                        caption = "포인트 ${catalog.points.count { it.region == region }}곳 선택",
+                                        onClick = { selectedRegion = region; screen = Screen.POINTS }
+                                    )
+                                }
+                                item { WatchButton("돌아가기", onClick = { screen = Screen.HOME }) }
+                            }
+
+                            Screen.POINTS -> {
+                                item { PageHeading("$selectedRegion 포인트", "원하는 장소를 누르세요") }
+                                item {
+                                    WatchButton("내 위치로", onClick = {
+                                        onUseGps()
+                                        screen = Screen.HOME
+                                    })
+                                }
+                                val points = PointSelection.inRegion(catalog.points, selectedRegion)
+                                items(points.size) { index ->
+                                    val candidate = points[index]
+                                    NavigationCard(
+                                        title = if (candidate.id == point.id && !isGpsMode)
+                                            "✓ ${candidate.name}" else candidate.name,
+                                        caption = candidate.types.take(2).joinToString(" · "),
+                                        onClick = {
+                                            onSelectPoint(candidate)
+                                            screen = Screen.HOME
+                                        }
+                                    )
+                                }
+                                item { WatchButton("지역 목록", onClick = { screen = Screen.REGIONS }) }
+                            }
+                        }
                     }
-                    Spacer(Modifier.height(25.dp))
                 }
             }
         }
@@ -203,441 +248,164 @@ fun WearFishingApp(
 }
 
 @Composable
-private fun NavChip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(
-        modifier = modifier.clip(RoundedCornerShape(50))
-            .background(if (selected) Color(0xFF1D5264) else Surface)
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp, horizontal = 2.dp),
-        contentAlignment = Alignment.Center
+private fun PageHeading(title: String, subtitle: String? = null) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text, fontSize = 10.sp,
-            color = if (selected) Aqua else MutedText,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1
-        )
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = White)
+        if (subtitle != null) {
+            Text(subtitle, fontSize = 11.sp, color = Gray,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
 @Composable
-private fun NowPage(
-    report: SeaReport?,
-    refreshing: Boolean,
-    point: FishingPoint,
-    gpsStatus: String,
-    isGpsMode: Boolean,
-    gpsDistanceKm: Double?,
-    topFish: List<FishingLogic.ScoredFish>,
-    now: ZonedDateTime,
-    onRefresh: () -> Unit,
-    onLocate: () -> Unit,
-    onPoints: () -> Unit,
-    onFish: () -> Unit
-) {
+private fun SeaAtGlance(report: SeaReport?, now: ZonedDateTime, refreshing: Boolean) {
     val weather = report?.weather
     val sea = report?.ocean
-    val label = FishingLogic.weatherLabel(weather?.weatherCode)
-    val risk = if (report?.stale == true) {
-        FishingLogic.Safety(FishingLogic.Risk.UNKNOWN, "이전 예보", "실시간 상태가 아닙니다")
-    } else FishingLogic.safety(report)
-
-    Text(
-        text = if (report == null || (weather == null && sea == null)) "예보 연결 대기"
-            else "${num(weather?.temperatureC, 0)}°  $label",
-        fontSize = if (weather?.temperatureC != null) 27.sp else 17.sp,
-        fontWeight = FontWeight.Bold, color = PrimaryText,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth()
-    )
-    Spacer(Modifier.height(3.dp))
-    Text(
-        text = when {
-            isGpsMode && gpsDistanceKm != null ->
-                "GPS 근접 포인트 · ${num(gpsDistanceKm, 1)} km"
-            else -> "선택 포인트 기준 · 현위치 아님"
-        },
-        fontSize = 10.sp, color = MutedText,
-        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
-    )
-    if (gpsDistanceKm != null && gpsDistanceKm >= 30) {
-        Spacer(Modifier.height(4.dp))
-        Text("포인트와 거리가 멀어 추천 정확도 제한", fontSize = 9.sp, color = Amber,
-            textAlign = TextAlign.Center)
-    }
-    Spacer(Modifier.height(8.dp))
-
-    Panel {
-        Text("지금 바다", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Aqua)
-        Spacer(Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            NumberTile("수온", num(sea?.surfaceTemperatureC) + "°", "모델 SST", Modifier.weight(1f))
-            NumberTile("파고", num(sea?.waveM) + "m", "파주기 ${num(sea?.wavePeriodSeconds)}s", Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            NumberTile("바람", num(weather?.windMs),
-                "m/s", Modifier.weight(1f))
-            NumberTile("돌풍", num(weather?.gustMs),
-                "m/s", Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(4.dp))
-        Text("풍향 ${FishingLogic.windDirection(weather?.windDirectionDegrees)}",
-            fontSize = 10.sp, color = MutedText)
-        Spacer(Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            NumberTile("비 확률", numberPercent(weather?.rainProbability), "예보", Modifier.weight(1f))
-            NumberTile("습도", numberPercent(weather?.relativeHumidity), "상대습도", Modifier.weight(1f))
-        }
-    }
-
-    Spacer(Modifier.height(8.dp))
-    val tide = TideCalculator.onDate(now.toLocalDate())
-    Panel {
-        Text("물때 · 조위", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Aqua)
-        Spacer(Modifier.height(5.dp))
-        Text("${tide.name}  ·  ${tide.band}", fontSize = 20.sp,
-            fontWeight = FontWeight.Bold, color = PrimaryText)
-        Text("음력 기준 간이 추정 · 공식 물때표 아님", fontSize = 9.sp, color = MutedText)
-        Spacer(Modifier.height(5.dp))
-        Text("조위 흐름  ${sea?.tideFlow ?: "--"}", fontSize = 11.sp, color = Blue)
-        if (report?.tideEvents?.isNotEmpty() == true) {
-            Spacer(Modifier.height(4.dp))
-            report.tideEvents.take(2).forEach { turn ->
-                Text("${turn.label} ${turn.time.format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))} (모델)",
-                    color = PrimaryText, fontSize = 11.sp)
-            }
-        } else {
-            Text("만·간조 예측값 없음", color = MutedText, fontSize = 10.sp)
-        }
-    }
-    Spacer(Modifier.height(8.dp))
-
-    Panel(color = when (risk.risk) {
-        FishingLogic.Risk.GOOD -> Color(0xFF13372F)
-        FishingLogic.Risk.CAUTION -> Color(0xFF3A2B21)
-        FishingLogic.Risk.BAD -> Color(0xFF3A202A)
-        FishingLogic.Risk.UNKNOWN -> Surface
-    }) {
-        Text(
-            text = "출조 판단 · ${risk.title}",
-            color = when (risk.risk) {
-                FishingLogic.Risk.GOOD -> Good
-                FishingLogic.Risk.CAUTION -> Amber
-                FishingLogic.Risk.BAD -> Danger
-                FishingLogic.Risk.UNKNOWN -> MutedText
-            },
-            fontSize = 12.sp, fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(risk.detail, fontSize = 10.sp, color = PrimaryText)
-    }
-
-    Spacer(Modifier.height(8.dp))
-    Panel(modifier = Modifier.clickable(onClick = onFish)) {
-        Text("추천 TOP 3   ›", fontSize = 12.sp, color = Aqua, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        topFish.forEachIndexed { index, result ->
-            Text("${index + 1}. ${result.fish.name}  ${result.score}점",
-                fontSize = 12.sp, color = PrimaryText, fontWeight = FontWeight.Medium)
-        }
-    }
-
-    Spacer(Modifier.height(7.dp))
-    if (report?.sunrise != null || report?.sunset != null) {
-        Text("일출 ${formatTime(report.sunrise)} · 일몰 ${formatTime(report.sunset)}",
-            fontSize = 10.sp, color = MutedText, textAlign = TextAlign.Center)
-    }
-    Text(
-        when {
-            report == null -> "예보 요청 중"
-            report.fetchedAtMs <= 0 -> report.notice ?: "예보 없음"
-            report.stale -> "오프라인/부분 실패 · 참고 예보 (${ageMinutes(report.fetchedAtMs)}분 전)"
-            else -> "Open-Meteo 모델 · ${ageMinutes(report.fetchedAtMs)}분 전 갱신"
-        },
-        fontSize = 9.sp, color = if (report?.stale == true) Amber else MutedText,
-        textAlign = TextAlign.Center
-    )
-    report?.notice?.let { Text(it, fontSize = 9.sp, color = Amber, textAlign = TextAlign.Center) }
-
-    Spacer(Modifier.height(10.dp))
-    Action("새로고침${if (refreshing) " 중..." else ""}", enabled = !refreshing, onClick = onRefresh)
-    Spacer(Modifier.height(5.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Action("GPS 재검색", Modifier.weight(1f), onClick = onLocate)
-        Action("포인트 변경", Modifier.weight(1f), onClick = onPoints)
-    }
-    Spacer(Modifier.height(6.dp))
-    Text(
-        "GPS: $gpsStatus\n위험도는 단순 수치 참고용. 현장 기상특보·출입통제 확인",
-        color = MutedText, fontSize = 9.sp,
-        textAlign = TextAlign.Center, lineHeight = 12.sp
-    )
-    Spacer(Modifier.height(5.dp))
-    Text(
-        "출처: Open-Meteo · Météo-France/ECMWF/NOAA/DWD/Copernicus 해양 모델",
-        color = MutedText, fontSize = 8.sp, textAlign = TextAlign.Center,
-        lineHeight = 11.sp
-    )
-}
-
-@Composable
-private fun FishPage(
-    topFish: List<FishingLogic.ScoredFish>,
-    point: FishingPoint,
-    report: SeaReport?,
-    catalog: GuideCatalog,
-    onDetails: (FishSpecies) -> Unit
-) {
-    Text("현위치 추천 대상어", color = PrimaryText, fontSize = 16.sp,
-        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-    Spacer(Modifier.height(4.dp))
-    Text("${point.name} 기준 · 계절/시간/예보", fontSize = 10.sp,
-        color = MutedText, textAlign = TextAlign.Center)
-    if (report == null || report.stale || report.weather == null || report.ocean == null) {
-        Text("현재 기상 반영 제한 · 계절·시간 우선", fontSize = 9.sp,
-            color = Amber, textAlign = TextAlign.Center)
-    }
-    if (FishingLogic.safety(report).risk == FishingLogic.Risk.BAD && report?.stale != true) {
-        Spacer(Modifier.height(5.dp))
-        Text("출조 비추천 조건 · 순위는 안전 판단과 별개",
-            fontSize = 10.sp, color = Danger, textAlign = TextAlign.Center)
-    }
-    Spacer(Modifier.height(9.dp))
-    topFish.forEachIndexed { index, item ->
-        val mainGear = catalog.gears.firstOrNull { it.id == item.fish.mainGear }
-        Panel(modifier = Modifier.clickable { onDetails(item.fish) }) {
-            Text(
-                "${index + 1}위  ${item.fish.name}",
-                color = if (index == 0) Aqua else PrimaryText,
-                fontSize = 17.sp, fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("조건 적합도", color = MutedText, fontSize = 10.sp,
-                    modifier = Modifier.weight(1f))
-                Text("${item.score} / 100", color = Blue, fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(4.dp))
-            Box(Modifier.fillMaxWidth().height(4.dp)
-                .clip(RoundedCornerShape(99.dp)).background(Color(0xFF244255))) {
-                Box(Modifier.fillMaxWidth(item.score / 100f).fillMaxHeight()
-                    .background(Aqua, RoundedCornerShape(99.dp)))
-            }
-            Spacer(Modifier.height(7.dp))
-            Text("장비  ${mainGear?.shortName ?: "--"}",
-                fontSize = 11.sp, color = PrimaryText)
-            Text("루어  ${item.fish.lures.firstOrNull() ?: "--"}",
-                fontSize = 10.sp, color = MutedText, lineHeight = 14.sp)
-            Text("자세히 보기  ›", fontSize = 10.sp, color = Aqua)
-        }
-        Spacer(Modifier.height(7.dp))
-    }
-    Text("추천 점수는 조과 확률이 아닌 가이드 적합도",
-        color = MutedText, fontSize = 9.sp, textAlign = TextAlign.Center)
-}
-
-@Composable
-private fun FishDetail(
-    fish: FishSpecies,
-    gear: FishingGear?,
-    onBack: () -> Unit
-) {
-    Action("‹ 추천 목록", onClick = onBack)
-    Spacer(Modifier.height(9.dp))
-    Text(fish.name, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Aqua)
-    Spacer(Modifier.height(8.dp))
-    DetailRow("메인 장비", gear?.fullName ?: "${fish.mainGear}번")
-    DetailRow("추천 루어", fish.lures.joinToString(" / "))
-    DetailRow("추천 색상", fish.colors.joinToString(" · "))
-    DetailRow("공략 수심", fish.water)
-    DetailRow("운용", fish.action)
-    DetailRow("포인트 노트", fish.note)
-    Spacer(Modifier.height(5.dp))
-    Text("기존 HTML의 어종·루어·장비 가이드", color = MutedText, fontSize = 9.sp)
-}
-
-@Composable
-private fun DetailRow(label: String, value: String) {
-    Panel {
-        Text(label, fontSize = 10.sp, color = Aqua, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(3.dp))
-        Text(value, fontSize = 11.sp, color = PrimaryText, lineHeight = 16.sp)
-    }
-    Spacer(Modifier.height(7.dp))
-}
-
-@Composable
-private fun CompassPage(
-    heading: Float?,
-    trueNorth: Boolean,
-    available: Boolean
-) {
-    Text("나침반", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = PrimaryText)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        if (heading == null) {
-            if (available) "센서 교정 또는 방향 확인 중" else "방위 센서를 사용할 수 없음"
-        } else "${heading.roundToInt()}° · ${FishingLogic.compassName(heading)}",
-        fontSize = if (heading != null) 19.sp else 11.sp,
-        fontWeight = FontWeight.Bold,
-        color = Aqua,
-        textAlign = TextAlign.Center
-    )
-    Spacer(Modifier.height(8.dp))
-    CompassDial(heading)
-    Spacer(Modifier.height(8.dp))
-    Text(
-        if (trueNorth) "진북 기준 · GPS 자기편각 보정"
-        else "자북 기준 · GPS 미확보",
-        fontSize = 10.sp, color = MutedText, textAlign = TextAlign.Center
-    )
-    Spacer(Modifier.height(5.dp))
-    Text(
-        "워치를 수평으로 들고 방향을 확인하세요.\n오차가 크면 금속 물체에서 떨어져 교정하세요.",
-        fontSize = 10.sp, lineHeight = 14.sp,
-        color = MutedText, textAlign = TextAlign.Center
-    )
-}
-
-@Composable
-private fun CompassDial(heading: Float?) {
-    Canvas(modifier = Modifier.size(154.dp)) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = size.minDimension * 0.435f
-        drawCircle(Color(0xFF143346), radius, center)
-        drawCircle(Color(0xFF426B80), radius, center, style = Stroke(width = 2.dp.toPx()))
-        rotate(-(heading ?: 0f), center) {
-            for (index in 0 until 36) {
-                val angle = Math.toRadians(index * 10.0 - 90.0)
-                val outer = Offset(
-                    center.x + cos(angle).toFloat() * radius,
-                    center.y + sin(angle).toFloat() * radius
-                )
-                val length = if (index % 9 == 0) 17.dp.toPx()
-                    else if (index % 3 == 0) 11.dp.toPx() else 6.dp.toPx()
-                val inner = Offset(
-                    center.x + cos(angle).toFloat() * (radius - length),
-                    center.y + sin(angle).toFloat() * (radius - length)
-                )
-                drawLine(
-                    if (index == 0) Danger
-                    else if (index % 9 == 0) Blue else MutedText,
-                    inner, outer, strokeWidth = if (index % 9 == 0) 3.dp.toPx() else 1.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-        // Stationary upward pointer is the direction the top of the watch faces.
-        val arrow = Path().apply {
-            moveTo(center.x, center.y - 31.dp.toPx())
-            lineTo(center.x - 10.dp.toPx(), center.y + 13.dp.toPx())
-            lineTo(center.x, center.y + 7.dp.toPx())
-            lineTo(center.x + 10.dp.toPx(), center.y + 13.dp.toPx())
-            close()
-        }
-        drawPath(arrow, Aqua)
-        drawCircle(OceanBg, 5.dp.toPx(), center)
-        drawCircle(Aqua, 3.dp.toPx(), center)
-    }
-}
-
-@Composable
-private fun PointsPage(
-    points: List<FishingPoint>,
-    region: String,
-    onRegionChange: (String) -> Unit,
-    isGpsMode: Boolean,
-    gpsStatus: String,
-    onLocate: () -> Unit,
-    onSelect: (FishingPoint) -> Unit
-) {
-    Text("포인트 선택", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = PrimaryText)
-    Spacer(Modifier.height(7.dp))
-    Action("GPS 자동 선택", onClick = onLocate)
-    Text(if (isGpsMode) "현재 GPS 기준 자동 추천 중" else gpsStatus,
-        fontSize = 9.sp, color = MutedText, textAlign = TextAlign.Center)
-    Spacer(Modifier.height(9.dp))
-
-    val regions = listOf("포항", "경주", "울산", "부산")
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        regions.forEach { name ->
-            NavChip(name, region == name, Modifier.weight(1f)) { onRegionChange(name) }
-        }
-    }
-    Spacer(Modifier.height(8.dp))
-    points.filter { it.region == region }.forEach { point ->
-        Panel(modifier = Modifier.clickable { onSelect(point) }) {
-            Text(point.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Blue)
-            Text(point.types.joinToString(" · "), fontSize = 9.sp, color = MutedText)
-        }
-        Spacer(Modifier.height(5.dp))
-    }
-    Text("현장 출입통제·낚시 가능 구역 확인 필수", fontSize = 9.sp,
-        color = MutedText, textAlign = TextAlign.Center)
-}
-
-@Composable
-private fun Panel(
-    modifier: Modifier = Modifier,
-    color: Color = Surface,
-    content: @Composable ColumnScope.() -> Unit
-) {
+    val risk = if (report == null || report.stale) null else FishingLogic.safety(report)
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(color).then(modifier)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        content = content
-    )
-}
-
-@Composable
-private fun NumberTile(label: String, value: String, sub: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.clip(RoundedCornerShape(12.dp))
-            .background(SurfaceLight)
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(23.dp))
+            .background(CardBg).padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(label, fontSize = 10.sp, color = MutedText, maxLines = 1)
-        Spacer(Modifier.height(2.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (weather?.temperatureC == null) "날씨 --"
+                else "${display(weather.temperatureC, 0)}° · ${FishingLogic.weatherLabel(weather.weatherCode)}",
+                color = White, fontSize = 12.sp, maxLines = 1
+            )
+            Text(
+                when (risk?.risk) {
+                    FishingLogic.Risk.GOOD -> "양호"
+                    FishingLogic.Risk.CAUTION -> "주의"
+                    FishingLogic.Risk.BAD -> "위험"
+                    else -> if (refreshing) "갱신 중" else "미확인"
+                },
+                color = when (risk?.risk) {
+                    FishingLogic.Risk.GOOD -> Accent
+                    FishingLogic.Risk.BAD -> Red
+                    else -> Yellow
+                }, fontSize = 11.sp, fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("파고", fontSize = 12.sp, color = Gray)
         Text(
-            value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = PrimaryText,
-            maxLines = 1, overflow = TextOverflow.Ellipsis
+            if (sea?.waveM == null) "-- m" else "${display(sea.waveM)} m",
+            fontSize = 32.sp, color = Accent, fontWeight = FontWeight.Bold
         )
-        Spacer(Modifier.height(1.dp))
-        Text(sub, fontSize = 8.sp, color = MutedText,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            CompactMetric("바람", "${display(weather?.windMs)} m/s")
+            CompactMetric("수온", "${display(sea?.surfaceTemperatureC)}°")
+            CompactMetric("물때*", TideCalculator.onDate(now.toLocalDate()).name)
+        }
     }
 }
 
 @Composable
-private fun Action(
-    title: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit
+private fun CompactMetric(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, fontSize = 10.sp, color = Gray)
+        Text(value, fontSize = 13.sp, color = White, fontWeight = FontWeight.SemiBold,
+            maxLines = 1)
+    }
+}
+
+@Composable
+private fun NavigationCard(
+    title: String,
+    caption: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(24.dp)).background(CardBg)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .height(58.dp).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, color = White,
+                fontWeight = FontWeight.SemiBold, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            Text(caption, fontSize = 10.sp, color = Gray,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (enabled) Text("›", fontSize = 22.sp, color = Accent)
+    }
+}
+
+@Composable
+private fun WatchButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(if (enabled) Color(0xFF1D4A65) else Surface)
+        modifier = Modifier.fillMaxWidth().padding(top = 5.dp, bottom = 10.dp)
+            .clip(CircleShape)
+            .background(if (enabled) Color(0xFF234B5D) else CardBg)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 7.dp),
+            .height(48.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(title, fontSize = 11.sp, color = if (enabled) PrimaryText else MutedText,
-            fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, color = if (enabled) White else Gray, fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp)
     }
 }
 
-private fun num(value: Double?, digits: Int = 1): String =
+@Composable
+private fun CompassFace(heading: Float?, available: Boolean) {
+    val diameter = (LocalConfiguration.current.screenWidthDp * 0.7f).dp
+    val value = heading ?: 0f
+    Column(horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(diameter)) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val radius = size.minDimension / 2f
+                drawCircle(Color(0xFF213F52), radius = radius * 0.95f)
+                drawCircle(Background, radius = radius * 0.90f)
+                for (index in 0 until 24) {
+                    val rad = Math.toRadians(index * 15.0 - value - 90.0)
+                    val len = if (index % 6 == 0) radius * 0.14f else radius * 0.07f
+                    val x = cos(rad).toFloat()
+                    val y = sin(rad).toFloat()
+                    drawLine(
+                        if (index == 0) Accent else Color(0xFF638396),
+                        start = Offset(center.x + (radius * 0.76f - len) * x,
+                            center.y + (radius * 0.76f - len) * y),
+                        end = Offset(center.x + radius * 0.76f * x,
+                            center.y + radius * 0.76f * y),
+                        strokeWidth = if (index == 0) 6f else 3f, cap = StrokeCap.Round
+                    )
+                }
+                // North pointer rotates against the measured device heading.
+                val north = Math.toRadians(-value.toDouble() - 90.0)
+                drawLine(
+                    Accent, center,
+                    Offset(center.x + cos(north).toFloat() * radius * 0.54f,
+                        center.y + sin(north).toFloat() * radius * 0.54f),
+                    strokeWidth = 8f, cap = StrokeCap.Round
+                )
+                drawCircle(Accent, radius = 8f)
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().graphicsLayer(rotationZ = -value),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Text("N", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 16.dp))
+            }
+        }
+        Text(
+            if (!available || heading == null) "--°" else "${value.toInt()}°",
+            color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun display(value: Double?, decimals: Int = 1): String =
     if (value == null || !value.isFinite()) "--"
-    else String.format(Locale.KOREA, "%.${digits}f", value)
-
-private fun numberPercent(value: Double?): String =
-    if (value == null || !value.isFinite()) "--"
-    else "${value.roundToInt()}%"
-
-private fun formatTime(time: LocalTime?): String =
-    time?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
-
-private fun ageMinutes(timestamp: Long): Long =
-    ((System.currentTimeMillis() - timestamp) / 60_000L).coerceAtLeast(0)
+    else String.format(Locale.KOREA, "%.${decimals}f", value)

@@ -18,6 +18,7 @@ import com.eastsea.badahannun.data.*
 import com.eastsea.badahannun.domain.CompassTracker
 import com.eastsea.badahannun.domain.FishingLogic
 import com.eastsea.badahannun.ui.WearFishingApp
+import com.eastsea.badahannun.tiles.TileSnapshotStore
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -97,34 +98,34 @@ class MainActivity : ComponentActivity() {
                 report = report,
                 refreshing = refreshing,
                 gpsStatus = locationStatus,
-                isGpsMode = manualPointId == null && gpsLocation != null,
+                // GPS is the default selection mode even while the first fix is pending.
+                isGpsMode = manualPointId == null,
                 gpsDistanceKm = distance,
                 heading = trueHeading,
                 compassTrueNorth = gpsLocation != null,
                 compassAvailable = compassAvailable,
                 onRefresh = { loadData(force = true) },
-                onLocate = {
-                    if (hasLocationPermission()) requestLocation()
-                    else requestPermission.launch(arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ))
-                },
                 onSelectPoint = { p ->
                     manualPointId = p.id
                     uiPreferences.edit().putString("manual_point", p.id).apply()
+                    // Avoid leaving previous point data onscreen or in the tile.
+                    report = null
+                    TileSnapshotStore.clear(this, p, gpsMode = false, hasLocation = false)
                     loadData(force = false)
                 },
                 onUseGps = {
                     manualPointId = null
                     uiPreferences.edit().remove("manual_point").apply()
-                    if (gpsLocation == null) {
-                        if (hasLocationPermission()) requestLocation()
-                        else requestPermission.launch(arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        ))
-                    } else loadData(force = false)
+                    report = null
+                    TileSnapshotStore.clear(this, selectedPoint(), gpsMode = true,
+                        hasLocation = gpsLocation != null)
+                    // "내 위치로" must trigger a new fix, even if a previous fix exists.
+                    if (hasLocationPermission()) requestLocation()
+                    else requestPermission.launch(arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ))
+                    if (gpsLocation != null) loadData(force = false)
                 },
                 onCompassVisible = { setCompassVisible(it) }
             )
@@ -198,9 +199,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun receiveLocation(location: Location) {
+        val previousPointId = selectedPoint().id
         gpsLocation = location
         locationStatus = "위치 확인됨 · 오차 약 ${location.accuracy.toInt()}m"
-        if (manualPointId == null) loadData(force = false)
+        if (manualPointId == null) {
+            if (selectedPoint().id != previousPointId) {
+                report = null
+                TileSnapshotStore.clear(this, selectedPoint(), gpsMode = true, hasLocation = true)
+            }
+            loadData(force = false)
+        }
     }
 
     private fun loadData(force: Boolean) {
@@ -214,15 +222,32 @@ class MainActivity : ComponentActivity() {
         refreshJob = lifecycleScope.launch {
             try {
                 val result = repository.load(point, lat, lon, force)
-                if (epoch == refreshEpoch) report = result
+                if (epoch == refreshEpoch) {
+                    report = result
+                    val best = FishingLogic.topFish(
+                        catalog.fish, point, result.takeUnless { it.stale },
+                        java.time.ZonedDateTime.now(FishingLogic.KST)
+                    ).firstOrNull()?.fish?.name.orEmpty()
+                    TileSnapshotStore.write(
+                        this@MainActivity, point, gpsMode = manualPointId == null,
+                        hasLocation = manualPointId == null && gpsLocation != null,
+                        report = result, topFish = best
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // No fabricated zero values; keep previous data if available.
-                if (epoch == refreshEpoch && report == null) {
-                    report = SeaReport(
+                if (epoch == refreshEpoch) {
+                    // Do not let a tile retain the old location's measurements.
+                    if (report == null) report = SeaReport(
                         null, null, emptyList(), null, null,
                         0L, stale = true, notice = "예보 요청 실패 · 인터넷 연결 확인"
+                    )
+                    TileSnapshotStore.write(
+                        this@MainActivity, point, gpsMode = manualPointId == null,
+                        hasLocation = manualPointId == null && gpsLocation != null,
+                        report = report!!, topFish = ""
                     )
                 }
             } finally {
