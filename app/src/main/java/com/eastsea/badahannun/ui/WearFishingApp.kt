@@ -1,8 +1,5 @@
 package com.eastsea.badahannun.ui
 
-import android.graphics.Paint as AndroidPaint
-import android.graphics.Typeface
-
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -39,15 +36,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
@@ -87,7 +86,8 @@ private data class MarinePalette(
     val background: Color, val card: Color, val accent: Color,
     val foreground: Color, val secondary: Color, val warning: Color,
     val error: Color, val selected: Color, val button: Color,
-    val compassRing: Color, val graphGrid: Color
+    val compassRing: Color, val graphGrid: Color,
+    val windTrail: Color, val windHalo: Color
 )
 private val DarkMarinePalette = MarinePalette(
     background = Color(0xFF050D16), card = Color(0xFF102333),
@@ -95,7 +95,8 @@ private val DarkMarinePalette = MarinePalette(
     secondary = Color(0xFFA1B6C5), warning = Color(0xFFFFCD82),
     error = Color(0xFFFF858B), selected = Color(0xFF235C65),
     button = Color(0xFF234B5D), compassRing = Color(0xFF2A5063),
-    graphGrid = Color(0xFF294454)
+    graphGrid = Color(0xFF294454),
+    windTrail = Color(0xFF8BE8FF), windHalo = Color(0xFF12394B)
 )
 private val LightMarinePalette = MarinePalette(
     background = Color(0xFFF6FBFF), card = Color(0xFFE3F0F6),
@@ -103,7 +104,8 @@ private val LightMarinePalette = MarinePalette(
     secondary = Color(0xFF536D7E), warning = Color(0xFF875000),
     error = Color(0xFFA61F37), selected = Color(0xFFB8E4E8),
     button = Color(0xFFC6E5F0), compassRing = Color(0xFF86B5C6),
-    graphGrid = Color(0xFFB0C9D3)
+    graphGrid = Color(0xFFB0C9D3),
+    windTrail = Color(0xFF0073A9), windHalo = Color(0xFFF5FCFF)
 )
 private val LocalMarinePalette = compositionLocalOf { DarkMarinePalette }
 private val Background: Color
@@ -172,6 +174,10 @@ fun WearFishingApp(
 
     // The same saved app palette is used when the tile option follows app settings.
     val palette = if (appColorMode == AppColorMode.LIGHT) LightMarinePalette else DarkMarinePalette
+    // The HOME's FIRST list item occupies the visible watch viewport. The
+    // location selector only appears after swiping down, not above the dial.
+    val homeDialHeight = (LocalConfiguration.current.screenHeightDp - 12)
+        .coerceAtLeast(174).dp
     CompositionLocalProvider(LocalMarinePalette provides palette) {
     // Keep list state per destination. TransformingLazyColumn handles Wear rotary/bezel
     // events with ScreenScaffold and AppScaffold (including scroll indicator and focus).
@@ -187,32 +193,47 @@ fun WearFishingApp(
                     ) {
                         when (screen) {
                             Screen.HOME -> {
+                                // Deliberately no header/card above the full-watch dial.
                                 item {
-                                    PageHeading("바다한눈")
+                                    val leader = FishingLogic.topFish(catalog.fish, point,
+                                        report?.takeUnless { it.stale }, now)
+                                        .firstOrNull()?.fish?.name ?: "--"
+                                    SeaAtGlance(
+                                        report = report,
+                                        now = now,
+                                        heading = heading,
+                                        compassTrueNorth = compassTrueNorth,
+                                        compassAvailable = compassAvailable,
+                                        topFish = leader,
+                                        pointName = point.name,
+                                        viewportHeight = homeDialHeight
+                                    )
                                 }
+                                // The very next item is the location selector: swipe down.
                                 item {
                                     NavigationCard(
-                                        title = point.name,
+                                        title = "지역 · 포인트",
                                         caption = when {
-                                            !isGpsMode -> "직접 선택 · ${point.region}"
-                                            gpsDistanceKm == null -> "GPS 확인 중 · 임시 포인트"
-                                            else -> "내 위치 기준 · ${point.region}"
+                                            !isGpsMode -> "${point.name} · 직접 선택"
+                                            gpsDistanceKm == null -> "${point.name} · GPS 확인 중"
+                                            else -> "${point.name} · 내 위치"
                                         },
-                                        onClick = { selectedRegion = point.region; screen = Screen.REGIONS }
+                                        onClick = {
+                                            selectedRegion = point.region
+                                            screen = Screen.REGIONS
+                                        }
                                     )
                                 }
                                 item {
-    val leader = FishingLogic.topFish(catalog.fish, point,
-        report?.takeUnless { it.stale }, now).firstOrNull()?.fish?.name ?: "--"
-    SeaAtGlance(report, now, refreshing, heading, compassTrueNorth,
-        compassAvailable, leader)
-}
-                                item {
-                                    val condition = if (report?.stale == true) "이전 예보" else if (report == null) "예보 대기" else "모델 예보"
-                                    val distanceWarning = isGpsMode && gpsDistanceKm != null && gpsDistanceKm > 30.0
+                                    val condition = if (report?.stale == true) "이전 예보"
+                                        else if (report == null) "예보 대기" else "모델 예보"
+                                    val farFromPoint = isGpsMode && gpsDistanceKm != null &&
+                                        gpsDistanceKm > 30.0
                                     Text(
-                                        if (distanceWarning) "가까운 포인트와 ${display(gpsDistanceKm, 0)}km · 현장 확인" else condition + " · 공식 관측값 아님",
-                                        color = if (distanceWarning || report?.stale == true) Yellow else Gray,
+                                        if (farFromPoint) "가까운 포인트와 ${display(gpsDistanceKm, 0)}km · 현장 확인"
+                                        else "$condition · 공식 관측값 아님",
+                                        color = if (farFromPoint || report?.stale == true)
+                                            Yellow else Gray,
                                         textAlign = TextAlign.Center,
                                         fontSize = 10.sp,
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
@@ -225,16 +246,12 @@ fun WearFishingApp(
                                     })
                                 }
                                 item {
-                                    NavigationCard("추천 어종 TOP 3", "계절 · 시간 · 바다 상태", onClick = { screen = Screen.FISH })
+                                    NavigationCard("추천 어종 TOP 3", "계절 · 시간 · 바다 상태",
+                                        onClick = { screen = Screen.FISH })
                                 }
                                 item {
-                                    NavigationCard("지역 · 포인트", "내 위치로 / 직접 선택", onClick = {
-                                        selectedRegion = point.region
-                                        screen = Screen.REGIONS
-                                    })
-                                }
-                                item {
-                                    WatchButton(if (refreshing) "갱신 중..." else "예보 새로고침", !refreshing, onRefresh)
+                                    WatchButton(if (refreshing) "갱신 중..." else "예보 새로고침",
+                                        !refreshing, onRefresh)
                                 }
                                 item {
                                     NavigationCard("화면 · 타일 테마",
@@ -631,165 +648,180 @@ private fun ForecastValue(title: String, value: String) {
  * foreground; waves and wind are visual effects driven by model values.
  * Wind from-angle is converted to relative watch bearing.
  */
+/**
+ * First HOME viewport: full-width, dial-sized information without an
+ * introductory title or a surrounding card. Region selection is the next
+ * scroll item. Wind only animates when the model actually supplies direction
+ * and non-calm speed; waves remain model-driven, never an observed animation.
+ */
 @Composable
 private fun SeaAtGlance(
     report: SeaReport?,
     now: ZonedDateTime,
-    refreshing: Boolean,
     heading: Float?,
     compassTrueNorth: Boolean,
     compassAvailable: Boolean,
-    topFish: String
+    topFish: String,
+    pointName: String,
+    viewportHeight: Dp
 ) {
-    val w = report?.weather
+    val weather = report?.weather
     val ocean = report?.ocean
-    val speed = (w?.windMs ?: 0.0).coerceIn(0.0, 20.0).toFloat()
-    val motion = rememberInfiniteTransition(label = "marine-wind-waves")
+    val speed = (weather?.windMs ?: 0.0).coerceIn(0.0, 20.0).toFloat()
+    val motion = rememberInfiniteTransition(label = "visible-wind-and-one-wave")
     val phase by motion.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(4700, easing = LinearEasing)),
-        label = "wind-and-wave-phase"
+        animationSpec = infiniteRepeatable(tween(3600, easing = LinearEasing)),
+        label = "marine-animation-phase"
     )
-    val bearing = WatchVisualMath.relativeWind(w?.windDirectionDegrees, heading)
-    val accentPaint = Accent
-    val mutedPaint = Gray
-    val ringPaint = LocalMarinePalette.current.compassRing
-    // Native text drawing avoids placing composables inside the animated Canvas.
-    val cardinalPaint = remember {
-        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = AndroidPaint.Align.CENTER
-        }
-    }
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-            .background(CardBg).padding(horizontal = 9.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(Modifier.fillMaxWidth().height(210.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize()) {
-                val radius = size.minDimension * 0.48f
-                drawCircle(ringPaint, radius, style =
-                    androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
-                // A ring rotating *with the real foreground sensor heading*.
-                if (heading != null && compassAvailable) {
-                    for (index in 0 until 36) {
-                        val radians = Math.toRadians(index * 10.0 - heading.toDouble() - 90.0)
-                        val x = cos(radians).toFloat()
-                        val y = sin(radians).toFloat()
-                        val inner = if (index % 9 == 0) radius * 0.81f else radius * 0.88f
-                        drawLine(if (index == 0) accentPaint else mutedPaint.copy(alpha = 0.44f),
-                            Offset(center.x + inner * x, center.y + inner * y),
-                            Offset(center.x + radius * 0.97f * x,
-                                center.y + radius * 0.97f * y),
-                            strokeWidth = if (index == 0) 3.dp.toPx() else 1.dp.toPx(),
-                            cap = StrokeCap.Round)
-                    }
-                }
-                // Forecast wind blows in the corresponding compass-relative direction.
-                if (bearing != null) {
-                    val radians = Math.toRadians((bearing + 90f).toDouble())
-                    val dx = cos(radians).toFloat()
-                    val dy = sin(radians).toFloat()
-                    val px = -dy
-                    val py = dx
-                    for (i in -2..2) {
-                        val travel = ((phase * (0.5f + speed / 14f) + (i + 2) * 0.19f) % 1f - 0.5f)
-                        val offset = travel * radius * 0.92f
-                        val side = i * radius * 0.21f
-                        val mx = center.x + dx * offset + px * side
-                        val my = center.y + dy * offset + py * side
-                        val length = (8f + speed * 1.8f).dp.toPx()
-                        drawLine(Color(0xFF9AD8F3).copy(alpha = 0.13f + speed / 115f),
-                            Offset(mx - dx * length / 2, my - dy * length / 2),
-                            Offset(mx + dx * length / 2, my + dy * length / 2),
-                            strokeWidth = 1.4.dp.toPx(), cap = StrokeCap.Round)
-                    }
-                }
-                // One continuous wave: both ends meet the horizontal compass
-                // ring, and its curved center stays below the reading text.
-                val rising = (ocean?.tideFlow ?: "").contains("들물")
-                val wavePoints = MarineWaveGeometry.sample(
-                    centerX = center.x, centerY = center.y,
-                    radius = radius * 0.99f, waveHeightM = ocean?.waveM,
-                    phaseTurns = phase
-                )
-                val wavePath = Path().apply {
-                    moveTo(wavePoints.first().x, wavePoints.first().y)
-                    wavePoints.drop(1).forEach { point -> lineTo(point.x, point.y) }
-                }
-                drawPath(
-                    wavePath,
-                    if (rising) accentPaint.copy(alpha = 0.75f)
-                    else Color(0xFF4A94D5).copy(alpha = 0.75f),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(
-                        width = 2.7.dp.toPx(), cap = StrokeCap.Round
-                    )
-                )
+    val bearing = WatchVisualMath.relativeWind(weather?.windDirectionDegrees, heading)
+    val palette = LocalMarinePalette.current
+    val windColor = palette.windTrail
+    val windHalo = palette.windHalo
+    val ringColor = palette.compassRing
+    val minorTick = Gray
+    val waveRising = Accent
 
-                // Prominent cardinal letters follow real compass rotation.
-                // White discs keep E/W BLACK readable even on the dark theme.
-                cardinalPaint.textSize = 13.sp.toPx()
-                for ((letter, northBearing) in listOf(
-                    "N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f
-                )) {
-                    val angle = Math.toRadians((
-                        northBearing - (heading?.takeIf { compassAvailable } ?: 0f) - 90f
-                    ).toDouble())
-                    val x = center.x + cos(angle).toFloat() * radius * 0.74f
-                    val y = center.y + sin(angle).toFloat() * radius * 0.74f
-                    val position = Offset(x, y)
-                    drawCircle(Color.White, radius = 10.dp.toPx(), center = position)
-                    drawCircle(Color(0xFFADBFC9), radius = 10.dp.toPx(),
-                        center = position,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
-                    cardinalPaint.color = when (letter) {
-                        "N" -> android.graphics.Color.rgb(223, 41, 52) // RED north
-                        "S" -> android.graphics.Color.rgb(36, 106, 220) // BLUE south
-                        else -> android.graphics.Color.BLACK // E/W in BLACK
+    Box(
+        modifier = Modifier.fillMaxWidth().height(viewportHeight),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val radius = size.minDimension * 0.475f
+
+            // Large, high-contrast wind trails in the ring, moving towards
+            // the downwind bearing, with a soft contrasting outline.
+            if (bearing != null && speed > 0.3f) {
+                val radians = Math.toRadians((bearing + 90f).toDouble())
+                val dx = cos(radians).toFloat()
+                val dy = sin(radians).toFloat()
+                val px = -dy
+                val py = dx
+                val clipCircle = Path().apply {
+                    addOval(Rect(
+                        center.x - radius * 0.93f, center.y - radius * 0.93f,
+                        center.x + radius * 0.93f, center.y + radius * 0.93f
+                    ))
+                }
+                clipPath(clipCircle) {
+                    for (lane in -3..3) {
+                        val p = (phase * (0.70f + speed / 12f) +
+                            (lane + 3) * 0.145f) % 1f
+                        val along = (p * 2f - 1f) * radius * 0.82f
+                        val side = lane * radius * 0.19f
+                        val mx = center.x + dx * along + px * side
+                        val my = center.y + dy * along + py * side
+                        val trailLength = (18f + speed * 1.5f).dp.toPx()
+                            .coerceAtMost(radius * 0.49f)
+                        val from = Offset(
+                            mx - dx * trailLength / 2f,
+                            my - dy * trailLength / 2f
+                        )
+                        val to = Offset(
+                            mx + dx * trailLength / 2f,
+                            my + dy * trailLength / 2f
+                        )
+                        drawLine(
+                            windHalo.copy(alpha = 0.76f), from, to,
+                            strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round
+                        )
+                        val opacity = (0.78f + speed * 0.009f -
+                            kotlin.math.abs(lane) * 0.035f).coerceIn(0.65f, 0.94f)
+                        drawLine(
+                            windColor.copy(alpha = opacity), from, to,
+                            strokeWidth = (2.8f + speed * 0.065f).dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
                     }
-                    val textBaseline = y -
-                        (cardinalPaint.fontMetrics.ascent + cardinalPaint.fontMetrics.descent) / 2f
-                    drawContext.canvas.nativeCanvas.drawText(
-                        letter, x, textBaseline, cardinalPaint
+                }
+            }
+
+            // Single continuous wave, touching both horizontal ring edges.
+            val wavePoints = MarineWaveGeometry.sample(
+                centerX = center.x, centerY = center.y,
+                radius = radius * 0.99f, waveHeightM = ocean?.waveM,
+                phaseTurns = phase
+            )
+            val wavePath = Path().apply {
+                moveTo(wavePoints.first().x, wavePoints.first().y)
+                wavePoints.drop(1).forEach { point -> lineTo(point.x, point.y) }
+            }
+            drawPath(
+                wavePath,
+                if ((ocean?.tideFlow ?: "").contains("들물"))
+                    waveRising.copy(alpha = 0.8f)
+                else Color(0xFF418FD6).copy(alpha = 0.8f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 2.6.dp.toPx(), cap = StrokeCap.Round
+                )
+            )
+
+            // Cardinal accent TICKS: no N/E/S/W letters or round letter badges.
+            // A white under-stroke makes BLACK E/W legible in dark mode.
+            drawCircle(
+                ringColor, radius,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx())
+            )
+            val sensorHeading = heading?.takeIf { compassAvailable } ?: 0f
+            for (index in 0 until 36) {
+                val radians = Math.toRadians(
+                    index * 10.0 - sensorHeading.toDouble() - 90.0
+                )
+                val x = cos(radians).toFloat()
+                val y = sin(radians).toFloat()
+                val cardinal = index % 9 == 0
+                val inner = if (cardinal) radius * 0.69f else radius * 0.88f
+                val from = Offset(center.x + inner * x, center.y + inner * y)
+                val to = Offset(
+                    center.x + radius * 0.97f * x,
+                    center.y + radius * 0.97f * y
+                )
+                if (index == 9 || index == 27) {
+                    drawLine(
+                        Color.White, from, to,
+                        strokeWidth = 7.5.dp.toPx(), cap = StrokeCap.Round
                     )
                 }
-                // Fixed top reference; the north tick moves beneath it.
-                drawCircle(accentPaint, 3.2.dp.toPx(),
-                    center = Offset(center.x, center.y - radius * 1.02f))
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    if (w?.temperatureC == null) "날씨 --"
-                    else "${display(w.temperatureC, 0)}°  ${FishingLogic.weatherLabel(w.weatherCode)}",
-                    color = White, fontSize = 11.sp
-                )
-                Spacer(Modifier.height(6.dp))
-                Text("파고 ${display(ocean?.waveM)}m",
-                    color = Accent, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("${FishingLogic.windDirection(w?.windDirectionDegrees)} ${display(w?.windMs)}m/s",
-                    color = White, fontSize = 11.sp)
-                Text("수온 ${display(ocean?.surfaceTemperatureC)}° · ${TideCalculator.onDate(now.toLocalDate()).name}",
-                    color = White, fontSize = 11.sp)
-                Text(ocean?.tideFlow ?: "물 흐름 --", color = Yellow, fontSize = 10.sp)
-                Text("추천 $topFish", color = White, fontSize = 10.sp, maxLines = 1)
-                Text(
-                    if (!compassAvailable || heading == null) "나침반 확인 중"
-                    else "${if (compassTrueNorth) "진북" else "자북"} ${heading.toInt()}°",
-                    color = Gray, fontSize = 9.sp
+                val tickColor = when (index) {
+                    0 -> Color(0xFFDF2934)   // N red
+                    18 -> Color(0xFF246ADC) // S blue
+                    9, 27 -> Color.Black    // E/W black
+                    else -> minorTick.copy(alpha = 0.42f)
+                }
+                drawLine(
+                    tickColor, from, to,
+                    strokeWidth = if (cardinal) 4.6.dp.toPx()
+                        else 1.1.dp.toPx(),
+                    cap = StrokeCap.Round
                 )
             }
+            // Fixed heading reference at the watch's physical top.
+            drawCircle(Color(0xFFFFF8E1), 2.6.dp.toPx(),
+                center = Offset(center.x, center.y - radius * 1.015f))
         }
-        Text(
-            when {
-                refreshing -> "예보 갱신 중"
-                report == null -> "예보 확인 중"
-                report.stale -> "이전 예보 · 갱신 필요"
-                else -> "기상·파도는 수치모델 예보 · 물때는 간이"
-            }, color = if (report?.stale == true) Yellow else Gray,
-            textAlign = TextAlign.Center, fontSize = 9.sp,
-            modifier = Modifier.fillMaxWidth()
-        )
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(pointName, color = Gray, fontSize = 10.sp, maxLines = 1)
+            Text(
+                if (weather?.temperatureC == null) "날씨 --"
+                else "${display(weather.temperatureC, 0)}°  ${FishingLogic.weatherLabel(weather.weatherCode)}",
+                color = White, fontSize = 10.sp, maxLines = 1
+            )
+            Spacer(Modifier.height(2.dp))
+            Text("파고 ${display(ocean?.waveM)}m",
+                color = Accent, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("${FishingLogic.windDirection(weather?.windDirectionDegrees)} ${display(weather?.windMs)}m/s",
+                color = White, fontSize = 10.sp, maxLines = 1)
+            Text("수온 ${display(ocean?.surfaceTemperatureC)}° · ${TideCalculator.onDate(now.toLocalDate()).name}",
+                color = White, fontSize = 10.sp, maxLines = 1)
+            Text(ocean?.tideFlow ?: "물 흐름 --", color = Yellow, fontSize = 10.sp)
+            Text("추천 $topFish", color = White, fontSize = 10.sp, maxLines = 1)
+            Text(
+                if (!compassAvailable || heading == null) "방위 확인 중"
+                else "${if (compassTrueNorth) "진북" else "자북"} ${heading.toInt()}°",
+                color = Gray, fontSize = 9.sp, maxLines = 1
+            )
+        }
     }
 }
 
