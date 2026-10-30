@@ -23,8 +23,9 @@ assert(main.includes('manualPointId = null') && main.includes('manualPointId = p
 assert(main.includes('TileSnapshotStore.write(') && main.includes('TileSnapshotStore.clear('));
 assert(tile.includes('Material3TileService()') && tile.includes('setFreshnessIntervalMillis('));
 assert(tile.includes('MAX_AGE_MS') && tile.includes('report.stale'));
-assert(tile.includes('backgroundImage(') && tile.includes('MarineTileArtwork.create(snap)'));
-assert(tile.includes('headingRecent') && tile.includes('이전/미수신 예보'));
+assert(tile.includes('backgroundImage(') && tile.includes('MarineTileArtwork.create(snap, resolvedTheme)'));
+assert(!tile.includes('headingRecent') && !tile.includes('headingDegrees'));
+assert(tile.includes('N↑ 고정') && tile.includes('이전/미수신 예보'));
 const artwork = read('app/src/main/java/com/eastsea/badahannun/tiles/MarineTileArtwork.kt');
 assert(artwork.includes('Bitmap.createBitmap(') &&
     artwork.includes('Bitmap.CompressFormat.PNG') &&
@@ -41,9 +42,11 @@ assert(ui.includes('FishLeaderChart(') && ui.includes('WatchVisualMath.dateTimeL
 assert(ui.includes('rememberInfiniteTransition(') && ui.includes('relativeWind('));
 assert(ui.includes('onCompassVisible(screen == Screen.HOME)') && !ui.includes('Screen.COMPASS'));
 // Wind and waves are drawn inside MarineTileArtwork, not in the old ArcLine tree.
-assert(artwork.includes('val from = snap.windDegrees') &&
-    artwork.includes('snap.waveHeightM') &&
-    artwork.includes('relativeWind('));
+assert(artwork.includes('relativeWind(snap.windDegrees?.toDouble(), null)') &&
+    artwork.includes('snap.waveHeightM'));
+assert(artwork.includes('drawCompass(canvas, brush, palette)'));
+assert(artwork.includes('radians(bearing)') &&
+    !artwork.includes('radians(bearing - heading)'));
 assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
 assert(math.includes('return null') && math.includes('tideStage('));
 assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
@@ -53,5 +56,15 @@ const runConfig = read('.idea/runConfigurations/Wear_BadaHannun.xml');
 assert(runConfig.includes('type="AndroidRunConfigurationType"'));
 assert(runConfig.includes('BadaHannunWearOS.app.main'));
 assert(runConfig.includes('value="default_activity"'));
+const pointOrder = read('app/src/main/java/com/eastsea/badahannun/domain/PointSelection.kt');
+assert(pointOrder.includes('listOf("울산", "경주", "포항", "부산")'));
+assert(pointOrder.includes('listOf("ulsan-seuldo", "ulsan-jujeon", "ulsan-dangsa")'));
+const appearance = read('app/src/main/java/com/eastsea/badahannun/domain/AppearanceSettings.kt');
+assert(appearance.includes('FOLLOW_APP("follow_app", "앱 설정에 따름")'));
+assert(appearance.includes('fun resolveTileTheme('));
+assert(main.includes('onAppColorModeChange =') && main.includes('onTileColorModeChange ='));
+assert(main.includes('TileSnapshotStore.requestUpdate(this)'));
+assert(ui.includes('Screen.SETTINGS') && ui.includes('CompositionLocalProvider('));
+assert(ui.includes('LightMarinePalette') && ui.includes('DarkMarinePalette'));
 assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
-console.log('PASS: full-color tile wind/wave PNG registered inline, visible fallback, live home compass, forecast graphs');
+console.log('PASS: static north compass, persisted light/dark/follow-app appearance, regional ordering');

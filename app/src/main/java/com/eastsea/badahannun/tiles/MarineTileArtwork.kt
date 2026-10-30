@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import androidx.wear.protolayout.ResourceBuilders
+import com.eastsea.badahannun.domain.AppColorMode
 import com.eastsea.badahannun.domain.WatchVisualMath
 import java.io.ByteArrayOutputStream
 import kotlin.math.cos
@@ -29,11 +30,15 @@ internal object MarineTileArtwork {
     private const val C = 180f
     private const val R = 164f
 
-    fun create(snapshot: TileSnapshotStore.Snapshot): ResourceBuilders.ImageResource {
+    /** Background theme is already resolved from app + tile preferences. */
+    fun create(
+        snapshot: TileSnapshotStore.Snapshot,
+        theme: AppColorMode
+    ): ResourceBuilders.ImageResource {
         val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         val output = ByteArrayOutputStream(48_000)
         try {
-            draw(Canvas(bitmap), snapshot)
+            draw(Canvas(bitmap), snapshot, palette(theme))
             check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                 "Failed to encode tile background PNG"
             }
@@ -52,52 +57,93 @@ internal object MarineTileArtwork {
             .build()
     }
 
-    private fun draw(canvas: Canvas, snap: TileSnapshotStore.Snapshot) {
+    private data class Palette(
+        val backgroundTop: Int,
+        val backgroundBottom: Int,
+        val compassRing: Int,
+        val compassTick: Int,
+        val compassNorth: Int,
+        val compassLetter: Int,
+        val wind: Int,
+        val waveRising: Int,
+        val waveFalling: Int,
+        val panel: Int,
+        val panelOutline: Int
+    )
+
+    private fun palette(theme: AppColorMode): Palette =
+        if (theme == AppColorMode.LIGHT) Palette(
+            backgroundTop = Color.rgb(247, 251, 254),
+            backgroundBottom = Color.rgb(219, 237, 245),
+            compassRing = Color.rgb(112, 159, 177),
+            compassTick = Color.rgb(94, 133, 154),
+            compassNorth = Color.rgb(0, 122, 124),
+            compassLetter = Color.rgb(65, 104, 124),
+            wind = Color.rgb(0, 113, 177),
+            waveRising = Color.rgb(0, 138, 124),
+            waveFalling = Color.rgb(32, 122, 183),
+            panel = Color.argb(236, 247, 252, 255),
+            panelOutline = Color.argb(180, 112, 162, 181)
+        ) else Palette(
+            backgroundTop = Color.rgb(5, 19, 32),
+            backgroundBottom = Color.rgb(7, 40, 57),
+            compassRing = Color.rgb(63, 126, 153),
+            compassTick = Color.rgb(148, 196, 215),
+            compassNorth = Color.rgb(75, 238, 216),
+            compassLetter = Color.rgb(167, 211, 224),
+            wind = Color.rgb(113, 220, 255),
+            waveRising = Color.rgb(68, 234, 209),
+            waveFalling = Color.rgb(91, 173, 254),
+            panel = Color.argb(198, 5, 18, 30),
+            panelOutline = Color.argb(148, 62, 135, 155)
+        )
+
+    private fun draw(canvas: Canvas, snap: TileSnapshotStore.Snapshot, palette: Palette) {
         val brush = Paint(Paint.ANTI_ALIAS_FLAG)
         // Opaque ocean background: no dependence on a renderer's tile background color.
         brush.shader = LinearGradient(0f, 0f, 0f, SIZE.toFloat(),
-            Color.rgb(5, 19, 32), Color.rgb(7, 40, 57), Shader.TileMode.CLAMP)
-        canvas.drawColor(Color.rgb(5, 19, 32))
+            palette.backgroundTop, palette.backgroundBottom, Shader.TileMode.CLAMP)
+        canvas.drawColor(palette.backgroundTop)
         canvas.drawCircle(C, C, 178f, brush)
         brush.shader = null
 
-        // Actual heading is only valid when recently cached from the visible app.
-        // Otherwise the compass is north-up with a clearly labeled fallback.
-        val heading = snap.headingDegrees?.takeIf { snap.headingRecent } ?: 0f
-        drawCompass(canvas, brush, heading, snap.headingRecent)
+        // Fixed cardinal ring: N=top, E=right, S=bottom, W=left.
+        // Never rotate the tile compass using a stale watch sensor heading.
+        drawCompass(canvas, brush, palette)
 
         // Wind and waves are DRAWN EVEN IF old, but dimmed. No model value means
         // a neutral decorative symbol and a "--" numerical text in the tile.
-        drawWind(canvas, brush, snap, heading)
-        drawWaves(canvas, brush, snap)
+        drawWind(canvas, brush, snap, palette)
+        drawWaves(canvas, brush, snap, palette)
 
-        // Dark translucent center ensures white text remains legible over graphics.
+        // Opaque-enough center panel keeps light/dark tile text readable.
         brush.style = Paint.Style.FILL
-        brush.color = Color.argb(198, 5, 18, 30)
+        brush.color = palette.panel
         canvas.drawRoundRect(RectF(90f, 74f, 270f, 272f), 38f, 38f, brush)
-        brush.color = Color.argb(148, 62, 135, 155)
+        brush.color = palette.panelOutline
         brush.style = Paint.Style.STROKE
         brush.strokeWidth = 1.4f
         canvas.drawRoundRect(RectF(90f, 74f, 270f, 272f), 38f, 38f, brush)
         brush.style = Paint.Style.FILL
     }
 
-    private fun drawCompass(
-        canvas: Canvas, brush: Paint, heading: Float, hasHeading: Boolean
-    ) {
+    private fun drawCompass(canvas: Canvas, brush: Paint, palette: Palette) {
         brush.style = Paint.Style.STROKE
         brush.strokeWidth = 3f
-        brush.color = Color.rgb(63, 126, 153)
+        brush.color = palette.compassRing
         canvas.drawCircle(C, C, R - 5f, brush)
 
         for (index in 0 until 36) {
-            val angle = radians(index * 10f - heading)
+            val angle = radians(index * 10f)
             val major = index % 9 == 0
             val inner = if (major) R - 28f else R - 15f
             val outer = R - 4f
             brush.strokeWidth = if (major) 4.2f else 1.8f
-            brush.color = if (index == 0) Color.rgb(75, 238, 216)
-                else Color.argb(majorAlpha(hasHeading, major), 148, 196, 215)
+            brush.color = if (index == 0) palette.compassNorth
+                else Color.argb(if (major) 220 else 130,
+                    Color.red(palette.compassTick),
+                    Color.green(palette.compassTick),
+                    Color.blue(palette.compassTick))
             val dx = cos(angle).toFloat()
             val dy = sin(angle).toFloat()
             canvas.drawLine(C + dx * inner, C + dy * inner,
@@ -109,28 +155,29 @@ internal object MarineTileArtwork {
         brush.textAlign = Paint.Align.CENTER
         brush.isFakeBoldText = true
         for ((label, bearing) in listOf("N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f)) {
-            val angle = radians(bearing - heading)
+            val angle = radians(bearing)
             val x = C + cos(angle).toFloat() * (R - 48f)
             val y = C + sin(angle).toFloat() * (R - 48f) + 7f
             // Only show compass letters near the outer ring: center text overlays them
             // when they are behind the dashboard, but the north tick stays visible.
-            brush.color = if (label == "N") Color.rgb(75, 238, 216)
-                else Color.argb(185, 167, 211, 224)
+            brush.color = if (label == "N") palette.compassNorth
+                else palette.compassLetter
             canvas.drawText(label, x, y, brush)
         }
         brush.isFakeBoldText = false
     }
 
     private fun drawWind(
-        canvas: Canvas, brush: Paint, snap: TileSnapshotStore.Snapshot, heading: Float
+        canvas: Canvas, brush: Paint, snap: TileSnapshotStore.Snapshot, palette: Palette
     ) {
-        val from = snap.windDegrees?.toDouble()
-            ?.let { WatchVisualMath.relativeWind(it, heading) }
+        // Relative to TRUE north-up screen, not the last captured sensor direction.
+        val from = WatchVisualMath.relativeWind(snap.windDegrees?.toDouble(), null)
         val freshOpacity = if (snap.fresh) 240 else 125
         val speed = snap.windSpeedMs?.coerceIn(0.0, 20.0)?.toFloat()
         if (from == null) {
             // No wind model: show a neutral, subdued streak - not a direction arrow.
-            brush.color = Color.argb(90, 113, 175, 197)
+            brush.color = Color.argb(90, Color.red(palette.wind),
+                Color.green(palette.wind), Color.blue(palette.wind))
             brush.style = Paint.Style.STROKE
             brush.strokeWidth = 3f
             canvas.drawArc(RectF(30f, 35f, 327f, 330f), 298f, 35f, false, brush)
@@ -146,7 +193,8 @@ internal object MarineTileArtwork {
         val ty = -oy
         val px = -ty
         val py = tx
-        brush.color = Color.argb(freshOpacity, 113, 220, 255)
+        brush.color = Color.argb(freshOpacity, Color.red(palette.wind),
+            Color.green(palette.wind), Color.blue(palette.wind))
         brush.strokeWidth = 4.8f
         brush.strokeCap = Paint.Cap.ROUND
         brush.style = Paint.Style.STROKE
@@ -170,7 +218,7 @@ internal object MarineTileArtwork {
             val bx = C + ox * 135f + px * side
             val by = C + oy * 135f + py * side
             brush.color = Color.argb((freshOpacity * (1f - kotlin.math.abs(i) * 0.14f)).toInt(),
-                82, 193, 235)
+                Color.red(palette.wind), Color.green(palette.wind), Color.blue(palette.wind))
             brush.strokeWidth = if (i == 0) 4f else 2.6f
             canvas.drawLine(bx + tx * 11f, by + ty * 11f,
                 bx + tx * (11f + length), by + ty * (11f + length), brush)
@@ -178,13 +226,15 @@ internal object MarineTileArtwork {
         brush.style = Paint.Style.FILL
     }
 
-    private fun drawWaves(canvas: Canvas, brush: Paint, snap: TileSnapshotStore.Snapshot) {
+    private fun drawWaves(
+        canvas: Canvas, brush: Paint, snap: TileSnapshotStore.Snapshot, palette: Palette
+    ) {
         val hasWave = snap.waveHeightM != null
         val height = snap.waveHeightM?.coerceIn(0.0, 3.5)?.toFloat() ?: 0f
         val rising = snap.tidePhase.contains("들물")
         val baseAlpha = if (!hasWave) 84 else if (snap.fresh) 230 else 120
         val amplitude = if (!hasWave) 4.5f else 6f + height * 11f
-        val tint = if (rising) intArrayOf(68, 234, 209) else intArrayOf(91, 173, 254)
+        val tint = if (rising) palette.waveRising else palette.waveFalling
 
         // Three full-width lower arcs: placed outside the center reading panel.
         // Wave height determines visible amplitude and stroke thickness.
@@ -202,14 +252,11 @@ internal object MarineTileArtwork {
             brush.strokeJoin = Paint.Join.ROUND
             brush.strokeWidth = 3.2f + height * 0.8f
             brush.color = Color.argb((baseAlpha - row * 37).coerceAtLeast(50),
-                tint[0], tint[1], tint[2])
+                Color.red(tint), Color.green(tint), Color.blue(tint))
             canvas.drawPath(path, brush)
         }
         brush.style = Paint.Style.FILL
     }
-
-    private fun majorAlpha(headingKnown: Boolean, major: Boolean): Int =
-        if (!headingKnown) 110 else if (major) 225 else 122
 
     private fun radians(bearingClockwiseFromNorth: Float): Double =
         Math.toRadians((bearingClockwiseFromNorth - 90f).toDouble())
