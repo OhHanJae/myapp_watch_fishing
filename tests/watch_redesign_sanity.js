@@ -53,7 +53,7 @@ assert(geometry.includes('fun sample(') && geometry.includes('centerX + (2f * t 
 assert(!artwork.includes('drawRoundRect(') && !artwork.includes('for (row in 0..2)'));
 assert(artwork.includes('MarineWaveGeometry.sample(') && artwork.includes('canvas.drawPath(wavePath, brush)'));
 assert(ui.includes('val wavePoints = MarineWaveGeometry.sample('));
-assert(!ui.includes('for (row in 0..2)') && ui.includes('drawPath(\n                    wavePath'));
+assert(!ui.includes('for (row in 0..2)') && /drawPath\(\s*wavePath/.test(ui));
 // No cardinal letter labels in either renderer; colored ticks instead.
 assert(!ui.includes('nativeCanvas.drawText('));
 assert(!artwork.includes('canvas.drawText(label'));
