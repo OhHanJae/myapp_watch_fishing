@@ -98,8 +98,10 @@ internal object MarineTileArtwork {
             brush.strokeWidth = if (major) 4.2f else 1.8f
             brush.color = if (index == 0) Color.rgb(75, 238, 216)
                 else Color.argb(majorAlpha(hasHeading, major), 148, 196, 215)
-            canvas.drawLine(C + cos(angle) * inner, C + sin(angle) * inner,
-                C + cos(angle) * outer, C + sin(angle) * outer, brush)
+            val dx = cos(angle).toFloat()
+            val dy = sin(angle).toFloat()
+            canvas.drawLine(C + dx * inner, C + dy * inner,
+                C + dx * outer, C + dy * outer, brush)
         }
 
         brush.style = Paint.Style.FILL
@@ -108,8 +110,8 @@ internal object MarineTileArtwork {
         brush.isFakeBoldText = true
         for ((label, bearing) in listOf("N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f)) {
             val angle = radians(bearing - heading)
-            val x = C + cos(angle) * (R - 48f)
-            val y = C + sin(angle) * (R - 48f) + 7f
+            val x = C + cos(angle).toFloat() * (R - 48f)
+            val y = C + sin(angle).toFloat() * (R - 48f) + 7f
             // Only show compass letters near the outer ring: center text overlays them
             // when they are behind the dashboard, but the north tick stays visible.
             brush.color = if (label == "N") Color.rgb(75, 238, 216)
@@ -138,8 +140,8 @@ internal object MarineTileArtwork {
 
         // A real directional arrow, showing where the reported wind comes FROM.
         val angle = radians(from)
-        val ox = cos(angle)
-        val oy = sin(angle)
+        val ox = cos(angle).toFloat()
+        val oy = sin(angle).toFloat()
         val tx = -ox
         val ty = -oy
         val px = -ty
