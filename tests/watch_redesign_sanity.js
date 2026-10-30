@@ -77,8 +77,9 @@ assert(ui.includes('strokeWidth = 6.dp.toPx()') &&
     ui.includes('windTrail = Color(0xFF8BE8FF)'));
 assert(read('app/src/test/java/com/eastsea/badahannun/domain/MarineWaveGeometryTest.kt')
     .includes('waveTouchesLeftAndRightCompassEdges'));
-assert(artwork.includes('radians(bearing)') &&
-    !artwork.includes('radians(bearing - heading)'));
+assert(artwork.includes('radians(index * 10f)') &&
+    !artwork.includes('radians(bearing - heading)') &&
+    !artwork.includes('canvas.drawText(label'));
 assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
 assert(math.includes('return null') && math.includes('tideStage('));
 assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
