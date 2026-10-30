@@ -1,5 +1,8 @@
 package com.eastsea.badahannun.ui
 
+import android.graphics.Paint as AndroidPaint
+import android.graphics.Typeface
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -38,6 +41,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
@@ -58,6 +62,7 @@ import com.eastsea.badahannun.data.GuideCatalog
 import com.eastsea.badahannun.data.SeaReport
 import com.eastsea.badahannun.domain.AppColorMode
 import com.eastsea.badahannun.domain.TileColorMode
+import com.eastsea.badahannun.domain.MarineWaveGeometry
 import com.eastsea.badahannun.domain.FishingLogic
 import com.eastsea.badahannun.domain.PointSelection
 import com.eastsea.badahannun.domain.TideCalculator
@@ -638,7 +643,6 @@ private fun SeaAtGlance(
 ) {
     val w = report?.weather
     val ocean = report?.ocean
-    val wave = (ocean?.waveM ?: 0.0).coerceIn(0.0, 3.5).toFloat()
     val speed = (w?.windMs ?: 0.0).coerceIn(0.0, 20.0).toFloat()
     val motion = rememberInfiniteTransition(label = "marine-wind-waves")
     val phase by motion.animateFloat(
@@ -650,6 +654,13 @@ private fun SeaAtGlance(
     val accentPaint = Accent
     val mutedPaint = Gray
     val ringPaint = LocalMarinePalette.current.compassRing
+    // Native text drawing avoids placing composables inside the animated Canvas.
+    val cardinalPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = AndroidPaint.Align.CENTER
+        }
+    }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
             .background(CardBg).padding(horizontal = 9.dp, vertical = 8.dp),
@@ -695,23 +706,53 @@ private fun SeaAtGlance(
                             strokeWidth = 1.4.dp.toPx(), cap = StrokeCap.Round)
                     }
                 }
-                // Model height controls the wave amplitude, while the tide phase
-                // controls its shade. This is decorative, not a tidal animation.
-                val amplitude = (1.8f + wave * 2.7f).dp.toPx()
+                // One continuous wave: both ends meet the horizontal compass
+                // ring, and its curved center stays below the reading text.
                 val rising = (ocean?.tideFlow ?: "").contains("들물")
-                for (row in 0..2) {
-                    val path = Path()
-                    for (i in 0..44) {
-                        val t = i / 44f
-                        val x = center.x + (t - 0.5f) * radius * 1.22f
-                        val y = center.y + radius * 0.50f + row * 7.dp.toPx() +
-                            sin((t * 3.5f + phase + row * 0.2f) * Math.PI * 2)
-                                .toFloat() * amplitude
-                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                val wavePoints = MarineWaveGeometry.sample(
+                    centerX = center.x, centerY = center.y,
+                    radius = radius * 0.99f, waveHeightM = ocean?.waveM,
+                    phaseTurns = phase
+                )
+                val wavePath = Path().apply {
+                    moveTo(wavePoints.first().x, wavePoints.first().y)
+                    wavePoints.drop(1).forEach { point -> lineTo(point.x, point.y) }
+                }
+                drawPath(
+                    wavePath,
+                    if (rising) accentPaint.copy(alpha = 0.75f)
+                    else Color(0xFF4A94D5).copy(alpha = 0.75f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.7.dp.toPx(), cap = StrokeCap.Round
+                    )
+                )
+
+                // Prominent cardinal letters follow real compass rotation.
+                // White discs keep E/W BLACK readable even on the dark theme.
+                cardinalPaint.textSize = 13.sp.toPx()
+                for ((letter, northBearing) in listOf(
+                    "N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f
+                )) {
+                    val angle = Math.toRadians((
+                        northBearing - (heading?.takeIf { compassAvailable } ?: 0f) - 90f
+                    ).toDouble())
+                    val x = center.x + cos(angle).toFloat() * radius * 0.74f
+                    val y = center.y + sin(angle).toFloat() * radius * 0.74f
+                    val position = Offset(x, y)
+                    drawCircle(Color.White, radius = 10.dp.toPx(), center = position)
+                    drawCircle(Color(0xFFADBFC9), radius = 10.dp.toPx(),
+                        center = position,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+                    cardinalPaint.color = when (letter) {
+                        "N" -> android.graphics.Color.rgb(223, 41, 52) // RED north
+                        "S" -> android.graphics.Color.rgb(36, 106, 220) // BLUE south
+                        else -> android.graphics.Color.BLACK // E/W in BLACK
                     }
-                    drawPath(path, if (rising) accentPaint.copy(alpha = 0.17f)
-                        else Color(0xFF6AAEDE).copy(alpha = 0.18f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx()))
+                    val textBaseline = y -
+                        (cardinalPaint.fontMetrics.ascent + cardinalPaint.fontMetrics.descent) / 2f
+                    drawContext.canvas.nativeCanvas.drawText(
+                        letter, x, textBaseline, cardinalPaint
+                    )
                 }
                 // Fixed top reference; the north tick moves beneath it.
                 drawCircle(accentPaint, 3.2.dp.toPx(),
