@@ -95,7 +95,9 @@ class MarineSummaryTileService : Material3TileService() {
             typography = Typography.LABEL_SMALL, color = textColor.argb, maxLines = 1))
         body.addContent(text("추천 ${snap.topFish}".layoutString,
             typography = Typography.LABEL_SMALL, color = textColor.argb, maxLines = 1))
-        body.addContent(text("N↑ 고정 · 풍향은 북 기준".layoutString,
+        // Keep the former last row's typography and height so other lines do not shift.
+        // Non-breaking space is not visible but still participates in text layout.
+        body.addContent(text("\u00A0".layoutString,
             typography = Typography.LABEL_SMALL, color = textColor.argb, maxLines = 1))
         rim.addContent(body.build())
         return Tile.Builder()

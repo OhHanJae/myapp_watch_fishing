@@ -63,8 +63,6 @@ internal object MarineTileArtwork {
         val backgroundBottom: Int,
         val compassRing: Int,
         val compassTick: Int,
-        val compassNorth: Int,
-        val compassLetter: Int,
         val wind: Int,
         val waveRising: Int,
         val waveFalling: Int
@@ -76,8 +74,6 @@ internal object MarineTileArtwork {
             backgroundBottom = Color.rgb(219, 237, 245),
             compassRing = Color.rgb(112, 159, 177),
             compassTick = Color.rgb(94, 133, 154),
-            compassNorth = Color.rgb(0, 122, 124),
-            compassLetter = Color.rgb(65, 104, 124),
             wind = Color.rgb(0, 113, 177),
             waveRising = Color.rgb(0, 138, 124),
             waveFalling = Color.rgb(32, 122, 183)
@@ -86,8 +82,6 @@ internal object MarineTileArtwork {
             backgroundBottom = Color.rgb(7, 40, 57),
             compassRing = Color.rgb(63, 126, 153),
             compassTick = Color.rgb(148, 196, 215),
-            compassNorth = Color.rgb(75, 238, 216),
-            compassLetter = Color.rgb(167, 211, 224),
             wind = Color.rgb(113, 220, 255),
             waveRising = Color.rgb(68, 234, 209),
             waveFalling = Color.rgb(91, 173, 254)
@@ -116,6 +110,7 @@ internal object MarineTileArtwork {
 
     }
 
+    /** Static tile: four accent ticks, no N/E/S/W text. North always points up. */
     private fun drawCompass(canvas: Canvas, brush: Paint, palette: Palette) {
         brush.style = Paint.Style.STROKE
         brush.strokeWidth = 3f
@@ -124,36 +119,36 @@ internal object MarineTileArtwork {
 
         for (index in 0 until 36) {
             val angle = radians(index * 10f)
-            val major = index % 9 == 0
-            val inner = if (major) R - 28f else R - 15f
+            val cardinal = index % 9 == 0
+            val inner = if (cardinal) R - 37f else R - 15f
             val outer = R - 4f
-            brush.strokeWidth = if (major) 4.2f else 1.8f
-            brush.color = if (index == 0) palette.compassNorth
-                else Color.argb(if (major) 220 else 130,
+            val dx = cos(angle).toFloat()
+            val dy = sin(angle).toFloat()
+            val x1 = C + dx * inner
+            val y1 = C + dy * inner
+            val x2 = C + dx * outer
+            val y2 = C + dy * outer
+
+            if (index == 9 || index == 27) {
+                // E and W are black on both themes; white under-stroke keeps
+                // those black lines legible on the dark ocean background.
+                brush.color = Color.WHITE
+                brush.strokeWidth = 8.0f
+                canvas.drawLine(x1, y1, x2, y2, brush)
+            }
+            brush.strokeWidth = if (cardinal) 5.0f else 1.8f
+            brush.color = when (index) {
+                0 -> Color.rgb(223, 41, 52)   // north: red
+                18 -> Color.rgb(36, 106, 220) // south: blue
+                9, 27 -> Color.BLACK          // east, west: black
+                else -> Color.argb(130,
                     Color.red(palette.compassTick),
                     Color.green(palette.compassTick),
                     Color.blue(palette.compassTick))
-            val dx = cos(angle).toFloat()
-            val dy = sin(angle).toFloat()
-            canvas.drawLine(C + dx * inner, C + dy * inner,
-                C + dx * outer, C + dy * outer, brush)
+            }
+            canvas.drawLine(x1, y1, x2, y2, brush)
         }
-
         brush.style = Paint.Style.FILL
-        brush.textSize = 19f
-        brush.textAlign = Paint.Align.CENTER
-        brush.isFakeBoldText = true
-        for ((label, bearing) in listOf("N" to 0f, "E" to 90f, "S" to 180f, "W" to 270f)) {
-            val angle = radians(bearing)
-            val x = C + cos(angle).toFloat() * (R - 48f)
-            val y = C + sin(angle).toFloat() * (R - 48f) + 7f
-            // Only show compass letters near the outer ring: center text overlays them
-            // when they are behind the dashboard, but the north tick stays visible.
-            brush.color = if (label == "N") palette.compassNorth
-                else palette.compassLetter
-            canvas.drawText(label, x, y, brush)
-        }
-        brush.isFakeBoldText = false
     }
 
     private fun drawWind(
