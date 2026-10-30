@@ -25,7 +25,9 @@ assert(tile.includes('Material3TileService()') && tile.includes('setFreshnessInt
 assert(tile.includes('MAX_AGE_MS') && tile.includes('report.stale'));
 assert(tile.includes('backgroundImage(') && tile.includes('MarineTileArtwork.create(snap, resolvedTheme)'));
 assert(!tile.includes('headingRecent') && !tile.includes('headingDegrees'));
-assert(tile.includes('N↑ 고정') && tile.includes('이전/미수신 예보'));
+assert(!tile.includes('N↑ 고정 · 풍향은 북 기준'));
+assert(tile.includes('text("\\u00A0".layoutString') &&
+    tile.includes('이전/미수신 예보'));
 const artwork = read('app/src/main/java/com/eastsea/badahannun/tiles/MarineTileArtwork.kt');
 assert(artwork.includes('Bitmap.createBitmap(') &&
     artwork.includes('Bitmap.CompressFormat.PNG') &&
@@ -52,10 +54,27 @@ assert(!artwork.includes('drawRoundRect(') && !artwork.includes('for (row in 0..
 assert(artwork.includes('MarineWaveGeometry.sample(') && artwork.includes('canvas.drawPath(wavePath, brush)'));
 assert(ui.includes('val wavePoints = MarineWaveGeometry.sample('));
 assert(!ui.includes('for (row in 0..2)') && ui.includes('drawPath(\n                    wavePath'));
-assert(ui.includes('drawContext.canvas.nativeCanvas.drawText('));
-assert(ui.includes('android.graphics.Color.rgb(223, 41, 52)'));
-assert(ui.includes('android.graphics.Color.rgb(36, 106, 220)'));
-assert(ui.includes('android.graphics.Color.BLACK // E/W in BLACK'));
+// No cardinal letter labels in either renderer; colored ticks instead.
+assert(!ui.includes('nativeCanvas.drawText('));
+assert(!artwork.includes('canvas.drawText(label'));
+assert(ui.includes('0 -> Color(0xFFDF2934)') &&
+    ui.includes('18 -> Color(0xFF246ADC)'));
+assert(ui.includes('9, 27 -> Color.Black'));
+assert(artwork.includes('0 -> Color.rgb(223, 41, 52)') &&
+    artwork.includes('18 -> Color.rgb(36, 106, 220)') &&
+    artwork.includes('9, 27 -> Color.BLACK'));
+// Full viewport is the FIRST HOME item, with location reachable by scrolling.
+const home = ui.slice(ui.indexOf('Screen.HOME -> {'), ui.indexOf('Screen.FORECAST -> {'));
+assert(home.indexOf('SeaAtGlance(') > -1 &&
+    home.indexOf('SeaAtGlance(') < home.indexOf('title = "지역 · 포인트"'));
+assert(!home.includes('PageHeading("바다한눈")'));
+assert(ui.includes('val homeDialHeight = (LocalConfiguration.current.screenHeightDp - 12)'));
+assert(ui.includes('Modifier.fillMaxWidth().height(viewportHeight)'));
+// Bright wind trails are drawn as real strokes and clipped to the compass.
+assert(ui.includes('clipPath(clipCircle)') &&
+    ui.includes('windColor.copy(alpha = opacity)'));
+assert(ui.includes('strokeWidth = 6.dp.toPx()') &&
+    ui.includes('windTrail = Color(0xFF8BE8FF)'));
 assert(read('app/src/test/java/com/eastsea/badahannun/domain/MarineWaveGeometryTest.kt')
     .includes('waveTouchesLeftAndRightCompassEdges'));
 assert(artwork.includes('radians(bearing)') &&
@@ -80,4 +99,4 @@ assert(main.includes('TileSnapshotStore.requestUpdate(this)'));
 assert(ui.includes('Screen.SETTINGS') && ui.includes('CompositionLocalProvider('));
 assert(ui.includes('LightMarinePalette') && ui.includes('DarkMarinePalette'));
 assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
-console.log('PASS: box-free tile, single full-width wave, cardinal-colored app compass, persisted themes');
+console.log('PASS: clean tile legend, fullscreen scroll-first compass, red/blue/black cardinal ticks, visible wind trails');
