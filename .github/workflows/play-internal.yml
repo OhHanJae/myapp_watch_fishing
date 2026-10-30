@@ -73,7 +73,7 @@ jobs:
             echo "::error::Computed Play versionCode is outside 1..2100000000"
             exit 1
           fi
-          NAME=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          NAME=$(sed -n 's/^[[:space:]]*versionName = .* ?: "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
           if [[ -z "$NAME" ]]; then
             echo "::error::Unable to find the base versionName in app/build.gradle.kts"
             exit 1

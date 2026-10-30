@@ -30,6 +30,8 @@ assert(w.includes('base64 --decode') && w.includes('PLAY_UPLOAD_KEYSTORE_PATH'))
 assert(w.includes('gradle :app:testDebugUnitTest :app:bundleRelease'));
 assert(w.includes('jarsigner -verify'));
 assert(w.includes('bada-hannun-play-signed-aab'));
+assert(w.includes('versionName = .* ?:'));
+assert(gradle.includes('versionName = providers.gradleProperty("playVersionName")'));
 assert(w.includes('rm -f "$RUNNER_TEMP/play-upload.jks"'));
 assert(gradle.includes('versionCode = providers.gradleProperty("playVersionCode")'));
 assert(gradle.includes('signingConfigs.getByName("playUpload")'));
