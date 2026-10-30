@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +56,8 @@ import com.eastsea.badahannun.data.FishingPoint
 import com.eastsea.badahannun.data.ForecastStep
 import com.eastsea.badahannun.data.GuideCatalog
 import com.eastsea.badahannun.data.SeaReport
+import com.eastsea.badahannun.domain.AppColorMode
+import com.eastsea.badahannun.domain.TileColorMode
 import com.eastsea.badahannun.domain.FishingLogic
 import com.eastsea.badahannun.domain.PointSelection
 import com.eastsea.badahannun.domain.TideCalculator
@@ -68,18 +72,53 @@ import kotlin.math.max
 import kotlin.math.sin
 
 /** Glanceable watch screens, with a separate chart/timeline destination. */
-private enum class Screen { HOME, FORECAST, TIME_DETAIL, FISH, REGIONS, POINTS }
+private enum class Screen { HOME, FORECAST, TIME_DETAIL, FISH, REGIONS, POINTS, SETTINGS }
 private enum class Metric(val title: String) {
     WAVE("파고"), WIND("바람"), AIR("기온"), SEA("수온"), LEVEL("조위")
 }
 
-private val Background = Color(0xFF050D16)
-private val CardBg = Color(0xFF102333)
-private val Accent = Color(0xFF63DFD4)
-private val White = Color(0xFFF0F8FF)
-private val Gray = Color(0xFFA1B6C5)
-private val Yellow = Color(0xFFFFCD82)
-private val Red = Color(0xFFFF858B)
+/** Scoped colors switch every watch screen without changing other app components. */
+private data class MarinePalette(
+    val background: Color, val card: Color, val accent: Color,
+    val foreground: Color, val secondary: Color, val warning: Color,
+    val error: Color, val selected: Color, val button: Color,
+    val compassRing: Color, val graphGrid: Color
+)
+private val DarkMarinePalette = MarinePalette(
+    background = Color(0xFF050D16), card = Color(0xFF102333),
+    accent = Color(0xFF63DFD4), foreground = Color(0xFFF0F8FF),
+    secondary = Color(0xFFA1B6C5), warning = Color(0xFFFFCD82),
+    error = Color(0xFFFF858B), selected = Color(0xFF235C65),
+    button = Color(0xFF234B5D), compassRing = Color(0xFF2A5063),
+    graphGrid = Color(0xFF294454)
+)
+private val LightMarinePalette = MarinePalette(
+    background = Color(0xFFF6FBFF), card = Color(0xFFE3F0F6),
+    accent = Color(0xFF006D73), foreground = Color(0xFF173344),
+    secondary = Color(0xFF536D7E), warning = Color(0xFF875000),
+    error = Color(0xFFA61F37), selected = Color(0xFFB8E4E8),
+    button = Color(0xFFC6E5F0), compassRing = Color(0xFF86B5C6),
+    graphGrid = Color(0xFFB0C9D3)
+)
+private val LocalMarinePalette = compositionLocalOf { DarkMarinePalette }
+private val Background: Color
+    @Composable get() = LocalMarinePalette.current.background
+private val CardBg: Color
+    @Composable get() = LocalMarinePalette.current.card
+private val Accent: Color
+    @Composable get() = LocalMarinePalette.current.accent
+private val White: Color
+    @Composable get() = LocalMarinePalette.current.foreground
+private val Gray: Color
+    @Composable get() = LocalMarinePalette.current.secondary
+private val Yellow: Color
+    @Composable get() = LocalMarinePalette.current.warning
+private val Red: Color
+    @Composable get() = LocalMarinePalette.current.error
+private val SelectedChip: Color
+    @Composable get() = LocalMarinePalette.current.selected
+private val ButtonBg: Color
+    @Composable get() = LocalMarinePalette.current.button
 
 @Composable
 fun WearFishingApp(
@@ -93,6 +132,10 @@ fun WearFishingApp(
     heading: Float?,
     compassTrueNorth: Boolean,
     compassAvailable: Boolean,
+    appColorMode: AppColorMode,
+    tileColorMode: TileColorMode,
+    onAppColorModeChange: (AppColorMode) -> Unit,
+    onTileColorModeChange: (TileColorMode) -> Unit,
     onRefresh: () -> Unit,
     onSelectPoint: (FishingPoint) -> Unit,
     onUseGps: () -> Unit,
@@ -122,6 +165,9 @@ fun WearFishingApp(
         }
     }
 
+    // The same saved app palette is used when the tile option follows app settings.
+    val palette = if (appColorMode == AppColorMode.LIGHT) LightMarinePalette else DarkMarinePalette
+    CompositionLocalProvider(LocalMarinePalette provides palette) {
     // Keep list state per destination. TransformingLazyColumn handles Wear rotary/bezel
     // events with ScreenScaffold and AppScaffold (including scroll indicator and focus).
     MaterialTheme {
@@ -184,6 +230,11 @@ fun WearFishingApp(
                                 }
                                 item {
                                     WatchButton(if (refreshing) "갱신 중..." else "예보 새로고침", !refreshing, onRefresh)
+                                }
+                                item {
+                                    NavigationCard("화면 · 타일 테마",
+                                        "앱 ${appColorMode.label} · 타일 ${tileColorMode.label}",
+                                        onClick = { screen = Screen.SETTINGS })
                                 }
                             }
 
@@ -311,11 +362,53 @@ fun WearFishingApp(
                                 }
                                 item { WatchButton("지역 목록", onClick = { screen = Screen.REGIONS }) }
                             }
+
+                            Screen.SETTINGS -> {
+                                item { PageHeading("테마 설정", "앱 화면과 타일 색상을 따로 선택") }
+                                item {
+                                    Text("앱 화면", color = Accent, fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                                }
+                                items(AppColorMode.entries.size) { index ->
+                                    val choice = AppColorMode.entries[index]
+                                    NavigationCard(
+                                        title = if (choice == appColorMode) "✓ ${choice.label}" else choice.label,
+                                        caption = "앱 전체 화면에 적용",
+                                        onClick = { onAppColorModeChange(choice) }
+                                    )
+                                }
+                                item {
+                                    Text("워치 타일", color = Accent, fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                                }
+                                items(TileColorMode.entries.size) { index ->
+                                    val choice = TileColorMode.entries[index]
+                                    NavigationCard(
+                                        title = if (choice == tileColorMode) "✓ ${choice.label}" else choice.label,
+                                        caption = when (choice) {
+                                            TileColorMode.FOLLOW_APP -> "앱 화면 테마 변경 시 같이 적용"
+                                            TileColorMode.LIGHT -> "타일만 밝은 색상"
+                                            TileColorMode.DARK -> "타일만 어두운 색상"
+                                        },
+                                        onClick = { onTileColorModeChange(choice) }
+                                    )
+                                }
+                                item {
+                                    Text("타일 나침반은 N↑ 고정 · 풍향만 북쪽 기준",
+                                        color = Gray, fontSize = 10.sp,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+                                }
+                                item { WatchButton("홈으로", onClick = { screen = Screen.HOME }) }
+                            }
                         }
                     }
                 }
             }
         }
+    }
     }
 }
 
@@ -340,7 +433,7 @@ private fun MetricTabs(selected: Metric, onSelect: (Metric) -> Unit) {
         Metric.entries.forEach { option ->
             Box(Modifier.weight(1f).height(32.dp)
                 .clip(RoundedCornerShape(30.dp))
-                .background(if (selected == option) Color(0xFF235C65) else CardBg)
+                .background(if (selected == option) SelectedChip else CardBg)
                 .clickable { onSelect(option) }, contentAlignment = Alignment.Center) {
                 Text(option.title, fontSize = 9.sp,
                     color = if (selected == option) Accent else White)
@@ -372,6 +465,9 @@ private fun TrendChart(steps: List<ForecastStep>, metric: Metric) {
         Text("${metric.title} · ${if (available.isEmpty()) "예보 없음" else "${display(available.minOrNull())}~${display(available.maxOrNull())}$unit"}",
             color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
+        val plotAccent = Accent
+        val plotWarning = Yellow
+        val plotGrid = LocalMarinePalette.current.graphGrid
         Canvas(Modifier.fillMaxWidth().height(102.dp)) {
             val left = 8f
             val right = size.width - 8f
@@ -385,7 +481,7 @@ private fun TrendChart(steps: List<ForecastStep>, metric: Metric) {
             // Light horizontal guides, no minuscule axis labels on a round screen.
             for (fraction in listOf(0f, 0.5f, 1f)) {
                 val y = top + fraction * (bottom - top)
-                drawLine(Color(0xFF294454), Offset(left, y), Offset(right, y), strokeWidth = 1f)
+                drawLine(plotGrid, Offset(left, y), Offset(right, y), strokeWidth = 1f)
             }
             fun xy(index: Int, value: Double): Offset = Offset(
                 left + (right - left) * index / max(1, values.lastIndex),
@@ -396,11 +492,11 @@ private fun TrendChart(steps: List<ForecastStep>, metric: Metric) {
                 val a = values[index - 1]
                 val b = values[index]
                 if (a != null && b != null) {
-                    drawLine(Accent, xy(index - 1, a), xy(index, b), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(plotAccent, xy(index - 1, a), xy(index, b), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
                 }
             }
             for (index in values.indices step 6) {
-                values[index]?.let { drawCircle(Yellow, radius = 2.5.dp.toPx(), center = xy(index, it)) }
+                values[index]?.let { drawCircle(plotWarning, radius = 2.5.dp.toPx(), center = xy(index, it)) }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -426,6 +522,8 @@ private fun TrendChart(steps: List<ForecastStep>, metric: Metric) {
 private fun FishLeaderChart(steps: List<ForecastStep>, leaders: List<String>) {
     val colors = listOf(Accent, Yellow, Color(0xFF7DABFF),
         Color(0xFFFF93A3), Color(0xFFA9C88A), Color(0xFFD2A2ED))
+    val mutedPlot = Gray
+    val tickPlot = White
     val species = leaders.filter { it != "--" }.distinct()
     val runs = WatchVisualMath.runs(leaders)
     Column(
@@ -443,14 +541,14 @@ private fun FishLeaderChart(steps: List<ForecastStep>, leaders: List<String>) {
             if (count > 0) {
                 val width = size.width / count
                 runs.forEach { run ->
-                    val color = if (run.name == "--") Gray.copy(alpha = 0.25f)
+                    val color = if (run.name == "--") mutedPlot.copy(alpha = 0.25f)
                         else colors[(species.indexOf(run.name).coerceAtLeast(0)) % colors.size]
                     drawRect(color, topLeft = Offset(width * run.startIndex, 3.dp.toPx()),
                         size = Size(width * (run.endExclusive - run.startIndex), 19.dp.toPx()))
                 }
                 for (at in listOf(0, count / 2, count - 1)) {
                     val x = (at + 0.5f) * width
-                    drawLine(White.copy(alpha = 0.72f),
+                    drawLine(tickPlot.copy(alpha = 0.72f),
                         Offset(x, 0f), Offset(x, 25.dp.toPx()), strokeWidth = 1.dp.toPx())
                 }
             }
@@ -549,6 +647,9 @@ private fun SeaAtGlance(
         label = "wind-and-wave-phase"
     )
     val bearing = WatchVisualMath.relativeWind(w?.windDirectionDegrees, heading)
+    val accentPaint = Accent
+    val mutedPaint = Gray
+    val ringPaint = LocalMarinePalette.current.compassRing
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
             .background(CardBg).padding(horizontal = 9.dp, vertical = 8.dp),
@@ -557,7 +658,7 @@ private fun SeaAtGlance(
         Box(Modifier.fillMaxWidth().height(210.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val radius = size.minDimension * 0.48f
-                drawCircle(Color(0xFF2A5063), radius, style =
+                drawCircle(ringPaint, radius, style =
                     androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
                 // A ring rotating *with the real foreground sensor heading*.
                 if (heading != null && compassAvailable) {
@@ -566,7 +667,7 @@ private fun SeaAtGlance(
                         val x = cos(radians).toFloat()
                         val y = sin(radians).toFloat()
                         val inner = if (index % 9 == 0) radius * 0.81f else radius * 0.88f
-                        drawLine(if (index == 0) Accent else Gray.copy(alpha = 0.44f),
+                        drawLine(if (index == 0) accentPaint else mutedPaint.copy(alpha = 0.44f),
                             Offset(center.x + inner * x, center.y + inner * y),
                             Offset(center.x + radius * 0.97f * x,
                                 center.y + radius * 0.97f * y),
@@ -608,12 +709,12 @@ private fun SeaAtGlance(
                                 .toFloat() * amplitude
                         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
-                    drawPath(path, if (rising) Accent.copy(alpha = 0.17f)
+                    drawPath(path, if (rising) accentPaint.copy(alpha = 0.17f)
                         else Color(0xFF6AAEDE).copy(alpha = 0.18f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx()))
                 }
                 // Fixed top reference; the north tick moves beneath it.
-                drawCircle(Accent, 3.2.dp.toPx(),
+                drawCircle(accentPaint, 3.2.dp.toPx(),
                     center = Offset(center.x, center.y - radius * 1.02f))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -690,7 +791,7 @@ private fun WatchButton(label: String, enabled: Boolean = true, onClick: () -> U
     Box(
         modifier = Modifier.fillMaxWidth().padding(top = 5.dp, bottom = 10.dp)
             .clip(CircleShape)
-            .background(if (enabled) Color(0xFF234B5D) else CardBg)
+            .background(if (enabled) ButtonBg else CardBg)
             .clickable(enabled = enabled, onClick = onClick)
             .height(48.dp),
         contentAlignment = Alignment.Center

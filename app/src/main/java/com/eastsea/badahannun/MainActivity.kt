@@ -15,6 +15,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.eastsea.badahannun.data.*
+import com.eastsea.badahannun.domain.AppColorMode
+import com.eastsea.badahannun.domain.TileColorMode
+import com.eastsea.badahannun.domain.AppearanceSettings
 import com.eastsea.badahannun.domain.CompassTracker
 import com.eastsea.badahannun.domain.FishingLogic
 import com.eastsea.badahannun.ui.WearFishingApp
@@ -39,20 +42,9 @@ class MainActivity : ComponentActivity() {
     private val uiPreferences by lazy { getSharedPreferences("ui", MODE_PRIVATE) }
     private val compass by lazy {
         CompassTracker(this) { magnetic ->
+            // Live heading belongs to the foreground app. Tile cardinal points
+            // are always north-up and never consume cached sensor orientation.
             magneticHeading = magnetic
-            // Tiles can't stream the sensor. Cache at most one sample / 20s
-            // while the foreground compass is open; expire on tile after 2 min.
-            if (compassWanted && magnetic != null && magnetic.isFinite()) {
-                val location = gpsLocation
-                val trueHeading = if (location == null) magnetic else {
-                    val offset = GeomagneticField(
-                        location.latitude.toFloat(), location.longitude.toFloat(),
-                        location.altitude.toFloat(), System.currentTimeMillis()
-                    ).declination
-                    (magnetic + offset + 360f) % 360f
-                }
-                TileSnapshotStore.saveHeading(this, trueHeading)
-            }
         }
     }
 
@@ -64,6 +56,8 @@ class MainActivity : ComponentActivity() {
     private var magneticHeading by mutableStateOf<Float?>(null)
     private var compassAvailable by mutableStateOf(true)
     private var compassWanted = false
+    private var appColorMode by mutableStateOf(AppColorMode.DARK)
+    private var tileColorMode by mutableStateOf(TileColorMode.FOLLOW_APP)
     private var refreshJob: Job? = null
     private var refreshEpoch = 0
     private var locationToken: CancellationTokenSource? = null
@@ -72,6 +66,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         manualPointId = uiPreferences.getString("manual_point", null)
             ?.takeIf { id -> catalog.points.any { it.id == id } }
+        appColorMode = AppearanceSettings.readApp(this)
+        tileColorMode = AppearanceSettings.readTile(this)
 
         setContent {
             val requestPermission = rememberLauncherForActivityResult(
@@ -121,6 +117,18 @@ class MainActivity : ComponentActivity() {
                 heading = trueHeading,
                 compassTrueNorth = gpsLocation != null,
                 compassAvailable = compassAvailable,
+                appColorMode = appColorMode,
+                tileColorMode = tileColorMode,
+                onAppColorModeChange = { newMode ->
+                    appColorMode = newMode
+                    AppearanceSettings.saveApp(this, newMode)
+                    TileSnapshotStore.requestUpdate(this)
+                },
+                onTileColorModeChange = { newMode ->
+                    tileColorMode = newMode
+                    AppearanceSettings.saveTile(this, newMode)
+                    TileSnapshotStore.requestUpdate(this)
+                },
                 onRefresh = { loadData(force = true) },
                 onSelectPoint = { p ->
                     manualPointId = p.id
