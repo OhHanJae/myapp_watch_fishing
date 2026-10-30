@@ -80,3 +80,14 @@ Android Studio 상단 장치 선택에서 `missing uses-feature watch, non-watch
 - **나침반:** 타일은 마지막으로 앱 홈에서 받은 방위를 최대 10분 동안 사용합니다. 방위가 없으면 북쪽을 위로 둔 나침반으로 표시하고 텍스트로 구분합니다. **타일은 연속 애니메이션/실시간 센서가 아닙니다.** 앱 홈에서만 실시간 바람/파도 연출을 보여줍니다.
 
 업데이트 후 워치에서 앱을 실행해 **예보 새로고침**한 뒤 타일을 다시 확인하세요. 기존 타일이 캐시를 계속 표시한다면 타일을 제거한 다음 재추가할 수 있습니다. 타일 프리뷰 이미지와 실제 타일 화면은 다를 수 있습니다.
+
+## Google Play 내부 테스트 자동 배포
+
+`.github/workflows/play-internal.yml`은 서명된 Wear OS AAB를 만들고 `master` 반영 시 Google Play **internal** 트랙으로 업로드하는 파이프라인입니다.
+
+- 최초 1회: Google Play Console에 앱 생성, 업로드 키 생성, 첫 서명 AAB를 **bundle_only** 모드로 빌드해 수동 등록.
+- 이후: GitHub Repository variable `PLAY_DEPLOY_ENABLED=true`를 설정하면 `master` 업데이트마다 내부 테스트에 자동 게시.
+- Google Play 계정 JSON과 업로드 서명키는 `google-play-internal` Environment Secrets로만 관리.
+- ADB 디버그 앱은 Play 설치본과 서명키가 달라 최초 전환 때 재설치가 필요할 수 있습니다.
+
+**처음 설정 상세: [PLAY_INTERNAL_SETUP.md](PLAY_INTERNAL_SETUP.md)**. Google Play 자동 업데이트는 타일 나침반의 실시간 센서 동작을 구현하는 기능은 아닙니다.

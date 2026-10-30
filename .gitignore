@@ -9,3 +9,10 @@ app/build/
 *.iml
 .DS_Store
 captures/
+
+# Keep Play upload credentials out of Git.
+*.jks
+*.keystore
+key.properties
+*service-account*.json
+*.p12

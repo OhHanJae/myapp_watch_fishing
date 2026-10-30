@@ -21,7 +21,9 @@ jobs:
         with:
           gradle-version: '8.13'
       - name: Check project layout and Wear launch config
-        run: node tests/watch_redesign_sanity.js
+        run: |
+          node tests/watch_redesign_sanity.js
+          node tests/play_delivery_sanity.js
       - name: Build and unit test
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
       # Android Studio checks required wearable features in the installed APK.

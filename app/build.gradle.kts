@@ -4,6 +4,22 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+
+// Only the Play release workflow supplies these environment variables.
+// Debug builds and ordinary Android Studio Run are unchanged.
+val playUploadKeystorePath = providers.environmentVariable("PLAY_UPLOAD_KEYSTORE_PATH").orNull
+val playUploadStorePassword = providers.environmentVariable("PLAY_UPLOAD_STORE_PASSWORD").orNull
+val playUploadKeyAlias = providers.environmentVariable("PLAY_UPLOAD_KEY_ALIAS").orNull
+val playUploadKeyPassword = providers.environmentVariable("PLAY_UPLOAD_KEY_PASSWORD").orNull
+
+if (playUploadKeystorePath != null) {
+    check(!playUploadStorePassword.isNullOrBlank() &&
+        !playUploadKeyAlias.isNullOrBlank() &&
+        !playUploadKeyPassword.isNullOrBlank()) {
+        "Play upload signing is incomplete: configure all PLAY_UPLOAD_* environment secrets."
+    }
+}
+
 android {
     namespace = "com.eastsea.badahannun"
     compileSdk = 36
@@ -12,13 +28,30 @@ android {
         applicationId = "com.eastsea.badahannun"
         minSdk = 30
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.2.1"
+        // GitHub Actions supplies a unique Play code. The local debug version stays stable.
+        versionCode = providers.gradleProperty("playVersionCode").orNull?.toInt() ?: 5
+        versionName = providers.gradleProperty("playVersionName").orNull ?: "2.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (playUploadKeystorePath != null) {
+            create("playUpload") {
+                storeFile = file(playUploadKeystorePath)
+                storePassword = playUploadStorePassword
+                keyAlias = playUploadKeyAlias
+                keyPassword = playUploadKeyPassword
+            }
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        getByName("release") {
+            isMinifyEnabled = false
+            // Never substitute the debug certificate for a Play upload key.
+            if (playUploadKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("playUpload")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
