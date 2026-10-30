@@ -21,9 +21,33 @@ jobs:
         with:
           gradle-version: '8.13'
       - name: Check project layout and Wear launch config
-        run: node tests/watch_redesign_sanity.js
+        run: |
+          node tests/watch_redesign_sanity.js
+          node tests/play_delivery_sanity.js
       - name: Build and unit test
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      # Use a short-lived, nonproduction key to exercise the *release AAB* path in PRs.
+      # This bundle is never deployed and these credentials are not real Play secrets.
+      - name: Verify signed release AAB with ephemeral CI key
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYSTORE="$RUNNER_TEMP/ci-only-upload.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          keytool -genkeypair -noprompt -storetype JKS \
+            -keystore "$KEYSTORE" \
+            -alias ci-only -storepass ci-pass-1234 -keypass ci-pass-1234 \
+            -keyalg RSA -keysize 2048 -validity 3 -dname 'CN=CI only, O=Test'
+          PLAY_UPLOAD_KEYSTORE_PATH="$KEYSTORE" \
+          PLAY_UPLOAD_STORE_PASSWORD="ci-pass-1234" \
+          PLAY_UPLOAD_KEY_ALIAS="ci-only" \
+          PLAY_UPLOAD_KEY_PASSWORD="ci-pass-1234" \
+            gradle :app:bundleRelease --no-daemon --stacktrace \
+              -PplayVersionCode=100001 -PplayVersionName=ci-only
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$AAB"
+          jarsigner -verify "$AAB" > "$RUNNER_TEMP/ci-aab-verify.log" 2>&1
+          grep -q 'jar verified' "$RUNNER_TEMP/ci-aab-verify.log"
       # Android Studio checks required wearable features in the installed APK.
       # A successful Gradle compilation alone does not prove device compatibility.
       - name: Verify packaged APK explicitly targets a watch
