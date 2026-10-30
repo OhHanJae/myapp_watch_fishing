@@ -45,6 +45,19 @@ assert(ui.includes('onCompassVisible(screen == Screen.HOME)') && !ui.includes('S
 assert(artwork.includes('relativeWind(snap.windDegrees?.toDouble(), null)') &&
     artwork.includes('snap.waveHeightM'));
 assert(artwork.includes('drawCompass(canvas, brush, palette)'));
+const geometry = read('app/src/main/java/com/eastsea/badahannun/domain/MarineWaveGeometry.kt');
+// Exactly one wave path in the tile and app; no center rectangle box.
+assert(geometry.includes('fun sample(') && geometry.includes('centerX + (2f * t - 1f) * radius'));
+assert(!artwork.includes('drawRoundRect(') && !artwork.includes('for (row in 0..2)'));
+assert(artwork.includes('MarineWaveGeometry.sample(') && artwork.includes('canvas.drawPath(wavePath, brush)'));
+assert(ui.includes('val wavePoints = MarineWaveGeometry.sample('));
+assert(!ui.includes('for (row in 0..2)') && ui.includes('drawPath(\n                    wavePath'));
+assert(ui.includes('drawContext.canvas.nativeCanvas.drawText('));
+assert(ui.includes('android.graphics.Color.rgb(223, 41, 52)'));
+assert(ui.includes('android.graphics.Color.rgb(36, 106, 220)'));
+assert(ui.includes('android.graphics.Color.BLACK // E/W in BLACK'));
+assert(read('app/src/test/java/com/eastsea/badahannun/domain/MarineWaveGeometryTest.kt')
+    .includes('waveTouchesLeftAndRightCompassEdges'));
 assert(artwork.includes('radians(bearing)') &&
     !artwork.includes('radians(bearing - heading)'));
 assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
@@ -67,4 +80,4 @@ assert(main.includes('TileSnapshotStore.requestUpdate(this)'));
 assert(ui.includes('Screen.SETTINGS') && ui.includes('CompositionLocalProvider('));
 assert(ui.includes('LightMarinePalette') && ui.includes('DarkMarinePalette'));
 assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
-console.log('PASS: static north compass, persisted light/dark/follow-app appearance, regional ordering');
+console.log('PASS: box-free tile, single full-width wave, cardinal-colored app compass, persisted themes');

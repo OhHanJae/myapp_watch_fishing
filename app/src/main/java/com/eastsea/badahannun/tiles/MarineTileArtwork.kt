@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import androidx.wear.protolayout.ResourceBuilders
 import com.eastsea.badahannun.domain.AppColorMode
+import com.eastsea.badahannun.domain.MarineWaveGeometry
 import com.eastsea.badahannun.domain.WatchVisualMath
 import java.io.ByteArrayOutputStream
 import kotlin.math.cos
@@ -66,9 +67,7 @@ internal object MarineTileArtwork {
         val compassLetter: Int,
         val wind: Int,
         val waveRising: Int,
-        val waveFalling: Int,
-        val panel: Int,
-        val panelOutline: Int
+        val waveFalling: Int
     )
 
     private fun palette(theme: AppColorMode): Palette =
@@ -81,9 +80,7 @@ internal object MarineTileArtwork {
             compassLetter = Color.rgb(65, 104, 124),
             wind = Color.rgb(0, 113, 177),
             waveRising = Color.rgb(0, 138, 124),
-            waveFalling = Color.rgb(32, 122, 183),
-            panel = Color.argb(236, 247, 252, 255),
-            panelOutline = Color.argb(180, 112, 162, 181)
+            waveFalling = Color.rgb(32, 122, 183)
         ) else Palette(
             backgroundTop = Color.rgb(5, 19, 32),
             backgroundBottom = Color.rgb(7, 40, 57),
@@ -93,9 +90,7 @@ internal object MarineTileArtwork {
             compassLetter = Color.rgb(167, 211, 224),
             wind = Color.rgb(113, 220, 255),
             waveRising = Color.rgb(68, 234, 209),
-            waveFalling = Color.rgb(91, 173, 254),
-            panel = Color.argb(198, 5, 18, 30),
-            panelOutline = Color.argb(148, 62, 135, 155)
+            waveFalling = Color.rgb(91, 173, 254)
         )
 
     private fun draw(canvas: Canvas, snap: TileSnapshotStore.Snapshot, palette: Palette) {
@@ -116,15 +111,9 @@ internal object MarineTileArtwork {
         drawWind(canvas, brush, snap, palette)
         drawWaves(canvas, brush, snap, palette)
 
-        // Opaque-enough center panel keeps light/dark tile text readable.
-        brush.style = Paint.Style.FILL
-        brush.color = palette.panel
-        canvas.drawRoundRect(RectF(90f, 74f, 270f, 272f), 38f, 38f, brush)
-        brush.color = palette.panelOutline
-        brush.style = Paint.Style.STROKE
-        brush.strokeWidth = 1.4f
-        canvas.drawRoundRect(RectF(90f, 74f, 270f, 272f), 38f, 38f, brush)
-        brush.style = Paint.Style.FILL
+        // Deliberately NO rounded rectangle behind text.
+        // The background itself is theme-aware and remains continuous.
+
     }
 
     private fun drawCompass(canvas: Canvas, brush: Paint, palette: Palette) {
@@ -226,35 +215,28 @@ internal object MarineTileArtwork {
         brush.style = Paint.Style.FILL
     }
 
+    /** One forecast-height-driven line from left ring edge to right ring edge. */
     private fun drawWaves(
         canvas: Canvas, brush: Paint, snap: TileSnapshotStore.Snapshot, palette: Palette
     ) {
-        val hasWave = snap.waveHeightM != null
-        val height = snap.waveHeightM?.coerceIn(0.0, 3.5)?.toFloat() ?: 0f
+        val height = snap.waveHeightM?.takeIf(Double::isFinite)
         val rising = snap.tidePhase.contains("들물")
-        val baseAlpha = if (!hasWave) 84 else if (snap.fresh) 230 else 120
-        val amplitude = if (!hasWave) 4.5f else 6f + height * 11f
-        val tint = if (rising) palette.waveRising else palette.waveFalling
-
-        // Three full-width lower arcs: placed outside the center reading panel.
-        // Wave height determines visible amplitude and stroke thickness.
-        for (row in 0..2) {
-            val yBase = 288f + row * 18f
-            val path = Path()
-            for (sample in 0..64) {
-                val x = 23f + sample * (314f / 64f)
-                val phase = sample / 64f * Math.PI * 4.0 + row * 0.85
-                val y = yBase + (sin(phase).toFloat() * amplitude)
-                if (sample == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            brush.style = Paint.Style.STROKE
-            brush.strokeCap = Paint.Cap.ROUND
-            brush.strokeJoin = Paint.Join.ROUND
-            brush.strokeWidth = 3.2f + height * 0.8f
-            brush.color = Color.argb((baseAlpha - row * 37).coerceAtLeast(50),
-                Color.red(tint), Color.green(tint), Color.blue(tint))
-            canvas.drawPath(path, brush)
+        val color = if (rising) palette.waveRising else palette.waveFalling
+        val opacity = if (height == null) 90 else if (snap.fresh) 238 else 150
+        val points = MarineWaveGeometry.sample(
+            centerX = C, centerY = C, radius = R - 5f, waveHeightM = height
+        )
+        val wavePath = Path().apply {
+            moveTo(points.first().x, points.first().y)
+            points.drop(1).forEach { point -> lineTo(point.x, point.y) }
         }
+
+        brush.style = Paint.Style.STROKE
+        brush.strokeCap = Paint.Cap.ROUND
+        brush.strokeJoin = Paint.Join.ROUND
+        brush.strokeWidth = 3.7f + (height ?: 0.0).coerceIn(0.0, 3.5).toFloat() * 0.8f
+        brush.color = Color.argb(opacity, Color.red(color), Color.green(color), Color.blue(color))
+        canvas.drawPath(wavePath, brush)
         brush.style = Paint.Style.FILL
     }
 
