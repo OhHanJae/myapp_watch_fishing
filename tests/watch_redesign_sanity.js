@@ -40,7 +40,10 @@ assert(ui.includes('TrendChart(') && ui.includes('ForecastDetailCard('));
 assert(ui.includes('FishLeaderChart(') && ui.includes('WatchVisualMath.dateTimeLabel(step.time)'));
 assert(ui.includes('rememberInfiniteTransition(') && ui.includes('relativeWind('));
 assert(ui.includes('onCompassVisible(screen == Screen.HOME)') && !ui.includes('Screen.COMPASS'));
-assert(tile.includes('windBearing') && tile.includes('waveHeightM'));
+// Wind and waves are drawn inside MarineTileArtwork, not in the old ArcLine tree.
+assert(artwork.includes('val from = snap.windDegrees') &&
+    artwork.includes('snap.waveHeightM') &&
+    artwork.includes('relativeWind('));
 assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
 assert(math.includes('return null') && math.includes('tideStage('));
 assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
