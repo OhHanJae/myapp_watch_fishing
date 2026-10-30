@@ -23,7 +23,15 @@ assert(main.includes('manualPointId = null') && main.includes('manualPointId = p
 assert(main.includes('TileSnapshotStore.write(') && main.includes('TileSnapshotStore.clear('));
 assert(tile.includes('Material3TileService()') && tile.includes('setFreshnessIntervalMillis('));
 assert(tile.includes('MAX_AGE_MS') && tile.includes('report.stale'));
-assert(tile.includes('Arc.Builder') && tile.includes('ArcText.Builder') && tile.includes('headingRecent'));
+assert(tile.includes('backgroundImage(') && tile.includes('MarineTileArtwork.create(snap)'));
+assert(tile.includes('headingRecent') && tile.includes('이전/미수신 예보'));
+const artwork = read('app/src/main/java/com/eastsea/badahannun/tiles/MarineTileArtwork.kt');
+assert(artwork.includes('Bitmap.createBitmap(') &&
+    artwork.includes('Bitmap.CompressFormat.PNG') &&
+    artwork.includes('InlineImageResource.Builder()') &&
+    artwork.includes('setInlineResource(image)'));
+assert(artwork.includes('drawWind(') && artwork.includes('drawWaves('));
+assert(artwork.includes('snapshot') || artwork.includes('snap'));
 assert(tile.includes('windDir') && tile.includes('tidePhase') && tile.includes('seaTemp'));
 assert(repository.includes('forecast = buildTimeline(') && repository.includes('(0..24).map'));
 assert(repository.includes('wave_height,wave_period,wave_direction,sea_surface_temperature,sea_level_height_msl'));
@@ -32,7 +40,10 @@ assert(ui.includes('TrendChart(') && ui.includes('ForecastDetailCard('));
 assert(ui.includes('FishLeaderChart(') && ui.includes('WatchVisualMath.dateTimeLabel(step.time)'));
 assert(ui.includes('rememberInfiniteTransition(') && ui.includes('relativeWind('));
 assert(ui.includes('onCompassVisible(screen == Screen.HOME)') && !ui.includes('Screen.COMPASS'));
-assert(tile.includes('windBearing') && tile.includes('waveHeightM'));
+// Wind and waves are drawn inside MarineTileArtwork, not in the old ArcLine tree.
+assert(artwork.includes('val from = snap.windDegrees') &&
+    artwork.includes('snap.waveHeightM') &&
+    artwork.includes('relativeWind('));
 assert(read('app/src/main/java/com/eastsea/badahannun/domain/WatchVisualMath.kt').includes('fun runs('));
 assert(math.includes('return null') && math.includes('tideStage('));
 assert(manifest.includes('androidx.wear.tiles.action.BIND_TILE_PROVIDER'));
@@ -43,4 +54,4 @@ assert(runConfig.includes('type="AndroidRunConfigurationType"'));
 assert(runConfig.includes('BadaHannunWearOS.app.main'));
 assert(runConfig.includes('value="default_activity"'));
 assert(build.includes('androidx.wear.tiles:tiles:1.6.2'));
-console.log('PASS: live home compass, wind/wave visuals, cached tile compass, absolute time, fish-leader chart');
+console.log('PASS: full-color tile wind/wave PNG registered inline, visible fallback, live home compass, forecast graphs');

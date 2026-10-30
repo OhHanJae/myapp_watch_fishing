@@ -18,3 +18,12 @@
 2. ▶ 옆 실행 구성 `app` 대신 **Wear OS - 바다한눈** 선택. **Run → Edit Configurations**의 모듈이 **`:app`**인지 확인.
 3. Build → Rebuild Project. 지속되면 `app/src/main/AndroidManifest.xml`의 **Merged Manifest** 탭을 확인.
 4. 최종 APK 확인은 `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check-wear-apk.ps1` 명령 한 번. 결과에 필수 watch 기능이 있으면 IDE 로컬 구성/캐시 문제입니다.
+
+### 타일 그래픽이 안 보일 때 (v2.2.1)
+
+1. 앱 홈에서 최신 예보를 한 번 받고 타일로 돌아옵니다.
+2. 외곽에는 나침반 눈금/풍향 화살표, 아래에는 파고에 따른 물결 **3줄**이 표시됩니다.
+3. 인터넷이 안 되거나 모델 수치가 없으면 기본 물결 그래픽과 `--` 표시가 보일 수 있습니다.
+4. 이전 타일 캐시가 남으면 타일 제거 후 **바다한눈 요약**을 다시 추가하세요.
+
+**타일 그림은 실시간 애니메이션이 아닌 예보값 기반 정적 이미지**입니다. 앱 홈에서만 계속 움직이는 바람/파도 효과가 동작합니다.
